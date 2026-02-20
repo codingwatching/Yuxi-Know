@@ -1,8 +1,10 @@
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from src.agents import agent_manager
 from src.repositories.conversation_repository import ConversationRepository
 from src.services.doc_converter import (
     ATTACHMENT_ALLOWED_EXTENSIONS,
@@ -39,6 +41,51 @@ def _make_attachment_path(file_name: str) -> str:
     # 替换路径分隔符
     safe_name = base_name.replace("/", "_").replace("\\", "_")
     return f"/attachments/{safe_name}.md"
+
+
+def _build_state_files(attachments: list[dict]) -> dict:
+    files = {}
+    for attachment in attachments:
+        if attachment.get("status") != "parsed":
+            continue
+
+        file_path = attachment.get("file_path")
+        markdown = attachment.get("markdown")
+        if not file_path or not markdown:
+            continue
+
+        now = datetime.now(UTC).isoformat()
+        files[file_path] = {
+            "content": markdown.split("\n"),
+            "created_at": attachment.get("uploaded_at", now),
+            "modified_at": attachment.get("uploaded_at", now),
+        }
+    return files
+
+
+async def _sync_thread_attachment_state(
+    *,
+    thread_id: str,
+    user_id: str,
+    agent_id: str,
+    attachments: list[dict],
+) -> None:
+    try:
+        agent = agent_manager.get_agent(agent_id)
+        if not agent:
+            logger.warning(f"Skip attachment state sync: agent not found ({agent_id})")
+            return
+
+        graph = await agent.get_graph()
+        await graph.aupdate_state(
+            config={"configurable": {"thread_id": thread_id, "user_id": str(user_id)}},
+            values={
+                "attachments": attachments,
+                "files": _build_state_files(attachments),
+            },
+        )
+    except Exception as e:
+        logger.warning(f"Failed to sync attachment state for thread {thread_id}: {e}")
 
 
 def serialize_attachment(record: dict) -> dict:
@@ -201,6 +248,13 @@ async def upload_thread_attachment_view(
         "minio_url": minio_url,
     }
     await conv_repo.add_attachment(conversation.id, attachment_record)
+    all_attachments = await conv_repo.get_attachments(conversation.id)
+    await _sync_thread_attachment_state(
+        thread_id=thread_id,
+        user_id=str(current_user_id),
+        agent_id=conversation.agent_id,
+        attachments=all_attachments,
+    )
 
     return serialize_attachment(attachment_record)
 
@@ -235,4 +289,11 @@ async def delete_thread_attachment_view(
     removed = await conv_repo.remove_attachment(conversation.id, file_id)
     if not removed:
         raise HTTPException(status_code=404, detail="附件不存在或已被删除")
+    all_attachments = await conv_repo.get_attachments(conversation.id)
+    await _sync_thread_attachment_state(
+        thread_id=thread_id,
+        user_id=str(current_user_id),
+        agent_id=conversation.agent_id,
+        attachments=all_attachments,
+    )
     return {"message": "附件已删除"}
