@@ -56,6 +56,19 @@
         placeholder="请选择嵌入模型"
       />
 
+      <div class="chunk-preset-title-row">
+        <h3 style="margin: 0">分块策略</h3>
+        <a-tooltip :title="selectedPresetDescription">
+          <QuestionCircleOutlined class="chunk-preset-help-icon" />
+        </a-tooltip>
+      </div>
+      <a-select
+        v-model:value="newDatabase.chunk_preset_id"
+        :options="chunkPresetOptions"
+        style="width: 100%"
+        size="large"
+      />
+
       <!-- 仅对 LightRAG 提供语言选择和LLM选择 -->
       <div v-if="newDatabase.kb_type === 'lightrag'">
         <h3 style="margin-top: 20px">语言</h3>
@@ -197,7 +210,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useConfigStore } from '@/stores/config'
 import { useDatabaseStore } from '@/stores/database'
-import { LockOutlined, InfoCircleOutlined, PlusOutlined } from '@ant-design/icons-vue'
+import { LockOutlined, PlusOutlined, QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { typeApi } from '@/apis/knowledge_api'
 import HeaderComponent from '@/components/HeaderComponent.vue'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -206,6 +219,7 @@ import ShareConfigForm from '@/components/ShareConfigForm.vue'
 import dayjs, { parseToShanghai } from '@/utils/time'
 import AiTextarea from '@/components/AiTextarea.vue'
 import { getKbTypeLabel, getKbTypeIcon, getKbTypeColor } from '@/utils/kb_utils'
+import { CHUNK_PRESET_OPTIONS, getChunkPresetDescription } from '@/utils/chunk_presets'
 
 const route = useRoute()
 const router = useRouter()
@@ -240,6 +254,8 @@ const languageOptions = [
   { label: '印地语 Hindi', value: 'Hindi' }
 ]
 
+const chunkPresetOptions = CHUNK_PRESET_OPTIONS.map(({ label, value }) => ({ label, value }))
+
 const createEmptyDatabaseForm = () => ({
   name: '',
   description: '',
@@ -247,6 +263,7 @@ const createEmptyDatabaseForm = () => ({
   kb_type: 'milvus',
   is_private: false,
   storage: '',
+  chunk_preset_id: 'general',
   language: 'Chinese',
   llm_info: {
     provider: '',
@@ -255,6 +272,10 @@ const createEmptyDatabaseForm = () => ({
 })
 
 const newDatabase = reactive(createEmptyDatabaseForm())
+
+const selectedPresetDescription = computed(() =>
+  getChunkPresetDescription(newDatabase.chunk_preset_id)
+)
 
 const llmModelSpec = computed(() => {
   const provider = newDatabase.llm_info?.provider || ''
@@ -364,7 +385,8 @@ const buildRequestData = () => {
     embed_model_name: newDatabase.embed_model_name || configStore.config.embed_model,
     kb_type: newDatabase.kb_type,
     additional_params: {
-      is_private: newDatabase.is_private || false
+      is_private: newDatabase.is_private || false,
+      chunk_preset_id: newDatabase.chunk_preset_id || 'general'
     }
   }
 
@@ -429,6 +451,20 @@ onMounted(() => {
 
 <style lang="less" scoped>
 .new-database-modal {
+  .chunk-preset-title-row {
+    margin-top: 20px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .chunk-preset-help-icon {
+    color: var(--gray-500);
+    cursor: help;
+    font-size: 14px;
+  }
+
   .kb-type-guide {
     margin: 12px 0;
   }

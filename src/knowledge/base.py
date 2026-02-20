@@ -3,6 +3,10 @@ import os
 from abc import ABC, abstractmethod
 from typing import Any
 
+from src.knowledge.chunking.ragflow_like.presets import (
+    ensure_chunk_defaults_in_additional_params,
+    resolve_chunk_processing_params,
+)
 from src.utils import logger
 from src.utils.datetime_utils import coerce_any_to_utc_datetime, utc_isoformat
 
@@ -76,6 +80,7 @@ class KnowledgeBase(ABC):
         self.databases_meta = {}
         for db_id, meta in global_databases_meta.items():
             if meta.get("kb_type") == self.kb_type:
+                normalized_additional_params = ensure_chunk_defaults_in_additional_params(meta.get("additional_params"))
                 self.databases_meta[db_id] = {
                     "name": meta.get("name"),
                     "description": meta.get("description"),
@@ -83,7 +88,7 @@ class KnowledgeBase(ABC):
                     "embed_info": meta.get("embed_info"),
                     "llm_info": meta.get("llm_info"),
                     "query_params": meta.get("query_params"),
-                    "metadata": meta.get("additional_params", {}),
+                    "metadata": normalized_additional_params,
                     "created_at": meta.get("created_at"),
                 }
 
@@ -91,7 +96,14 @@ class KnowledgeBase(ABC):
         self.files_meta = {}
         for file_id, meta in files_meta.items():
             if meta.get("database_id") in self.databases_meta:
-                self.files_meta[file_id] = meta
+                db_id = meta.get("database_id")
+                kb_additional_params = self.databases_meta.get(db_id, {}).get("metadata") or {}
+                normalized_meta = dict(meta)
+                normalized_meta["processing_params"] = resolve_chunk_processing_params(
+                    kb_additional_params=kb_additional_params,
+                    file_processing_params=meta.get("processing_params"),
+                )
+                self.files_meta[file_id] = normalized_meta
 
         # 过滤评估基准
         self.benchmarks_meta = {}
@@ -199,6 +211,11 @@ class KnowledgeBase(ABC):
         # Prepare metadata
         metadata = await prepare_item_metadata(item, content_type, db_id, params=params)
         file_id = metadata["file_id"]
+        kb_additional_params = self.databases_meta.get(db_id, {}).get("metadata") or {}
+        metadata["processing_params"] = resolve_chunk_processing_params(
+            kb_additional_params=kb_additional_params,
+            file_processing_params=metadata.get("processing_params"),
+        )
 
         # Initial status
         metadata["status"] = FileStatus.UPLOADED
@@ -323,13 +340,16 @@ class KnowledgeBase(ABC):
         if not params:
             return
 
-        # Merge or overwrite? Usually merge is safer, or replace.
-        # User might want to change chunk size.
         current_params = self.files_meta[file_id].get("processing_params", {}) or {}
+        kb_additional_params = self.databases_meta.get(db_id, {}).get("metadata") or {}
 
         logger.debug(f"[update_file_params] file_id={file_id}, current_params={current_params}, new_params={params}")
 
-        current_params.update(params)
+        current_params = resolve_chunk_processing_params(
+            kb_additional_params=kb_additional_params,
+            file_processing_params=current_params,
+            request_params=params,
+        )
 
         self.files_meta[file_id]["processing_params"] = current_params
         self.files_meta[file_id]["updated_at"] = utc_isoformat()
@@ -413,6 +433,8 @@ class KnowledgeBase(ABC):
             数据库信息字典
         """
         from src.utils import hashstr
+
+        kwargs = ensure_chunk_defaults_in_additional_params(kwargs)
 
         # 从 kwargs 中获取 is_private 配置
         is_private = kwargs.get("is_private", False)
@@ -982,7 +1004,7 @@ class KnowledgeBase(ABC):
                 "embed_info": kb.embed_info,
                 "llm_info": kb.llm_info,
                 "query_params": kb.query_params,
-                "metadata": kb.additional_params or {},
+                "metadata": ensure_chunk_defaults_in_additional_params(kb.additional_params),
                 "created_at": utc_isoformat(kb.created_at) if kb.created_at else utc_isoformat(),
             }
             for kb in databases
@@ -990,6 +1012,7 @@ class KnowledgeBase(ABC):
 
         self.files_meta = {}
         for kb in databases:
+            kb_additional_params = self.databases_meta.get(kb.db_id, {}).get("metadata") or {}
             for record in await file_repo.list_by_db_id(kb.db_id):
                 self.files_meta[record.file_id] = {
                     "file_id": record.file_id,
@@ -1003,7 +1026,10 @@ class KnowledgeBase(ABC):
                     "content_hash": record.content_hash,
                     "size": record.file_size,
                     "content_type": record.content_type,
-                    "processing_params": record.processing_params,
+                    "processing_params": resolve_chunk_processing_params(
+                        kb_additional_params=kb_additional_params,
+                        file_processing_params=record.processing_params,
+                    ),
                     "is_folder": record.is_folder,
                     "error": record.error_message,
                     "created_by": record.created_by,

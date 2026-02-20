@@ -2,6 +2,10 @@ import asyncio
 import os
 
 from src.knowledge.base import KBNotFoundError, KnowledgeBase
+from src.knowledge.chunking.ragflow_like.presets import (
+    deep_merge,
+    ensure_chunk_defaults_in_additional_params,
+)
 from src.knowledge.factory import KnowledgeBaseFactory
 from src.utils import logger
 from src.utils.datetime_utils import utc_isoformat
@@ -179,7 +183,7 @@ class KnowledgeBaseManager:
             if db_info:
                 # 补充 share_config 和 additional_params
                 db_info["share_config"] = row.share_config or {"is_shared": True, "accessible_departments": []}
-                db_info["additional_params"] = row.additional_params or {}
+                db_info["additional_params"] = ensure_chunk_defaults_in_additional_params(row.additional_params)
                 all_databases.append(db_info)
         return {"databases": all_databases}
 
@@ -310,6 +314,8 @@ class KnowledgeBaseManager:
         if share_config is None:
             share_config = {"is_shared": True, "accessible_departments": []}
 
+        kwargs = ensure_chunk_defaults_in_additional_params(kwargs)
+
         kb_instance = self._get_or_create_kb_instance(kb_type)
         db_info = await kb_instance.create_database(database_name, description, embed_info, **kwargs)
         db_id = db_info["db_id"]
@@ -414,7 +420,7 @@ class KnowledgeBaseManager:
             }
 
         # 添加数据库中的附加字段
-        db_info["additional_params"] = kb.additional_params or {}
+        db_info["additional_params"] = ensure_chunk_defaults_in_additional_params(kb.additional_params)
         db_info["share_config"] = kb.share_config or {"is_shared": True, "accessible_departments": []}
         db_info["mindmap"] = kb.mindmap
         db_info["sample_questions"] = kb.sample_questions or []
@@ -566,6 +572,11 @@ class KnowledgeBaseManager:
         """更新数据库"""
         from src.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
+        kb_repo = KnowledgeBaseRepository()
+        kb = await kb_repo.get_by_id(db_id)
+        if kb is None:
+            raise ValueError(f"数据库 {db_id} 不存在")
+
         kb_instance = await self._get_kb_for_database(db_id)
         kb_instance.update_database(db_id, name, description, llm_info)
 
@@ -576,13 +587,19 @@ class KnowledgeBaseManager:
         }
         if llm_info is not None:
             update_data["llm_info"] = llm_info
+
         if additional_params is not None:
-            update_data["additional_params"] = additional_params
+            merged_additional_params = ensure_chunk_defaults_in_additional_params(
+                deep_merge(kb.additional_params or {}, additional_params)
+            )
+            update_data["additional_params"] = merged_additional_params
+            if db_id in kb_instance.databases_meta:
+                kb_instance.databases_meta[db_id]["metadata"] = merged_additional_params
+
         if share_config is not None:
             update_data["share_config"] = share_config
 
         # 保存到数据库
-        kb_repo = KnowledgeBaseRepository()
         await kb_repo.update(db_id, update_data)
 
         return await self.get_database_info(db_id)

@@ -40,6 +40,59 @@ async def test_admin_can_manage_knowledge_databases(test_client, admin_headers, 
     assert update_response.json()["database"]["description"] == "Updated by pytest"
 
 
+async def test_create_database_with_chunk_preset(test_client, admin_headers):
+    db_name = f"pytest_chunk_preset_{uuid.uuid4().hex[:6]}"
+    payload = {
+        "database_name": db_name,
+        "description": "Chunk preset create test",
+        "embed_model_name": "siliconflow/BAAI/bge-m3",
+        "kb_type": "milvus",
+        "additional_params": {"chunk_preset_id": "book"},
+    }
+
+    create_response = await test_client.post("/api/knowledge/databases", json=payload, headers=admin_headers)
+    assert create_response.status_code == 200, create_response.text
+    db_id = create_response.json()["db_id"]
+
+    info_response = await test_client.get(f"/api/knowledge/databases/{db_id}", headers=admin_headers)
+    assert info_response.status_code == 200, info_response.text
+    assert info_response.json()["additional_params"]["chunk_preset_id"] == "book"
+
+    delete_response = await test_client.delete(f"/api/knowledge/databases/{db_id}", headers=admin_headers)
+    assert delete_response.status_code == 200, delete_response.text
+
+
+async def test_update_database_additional_params_merge_keeps_chunk_preset(
+    test_client, admin_headers, knowledge_database
+):
+    db_id = knowledge_database["db_id"]
+
+    first_update = await test_client.put(
+        f"/api/knowledge/databases/{db_id}",
+        json={
+            "name": knowledge_database["name"],
+            "description": "update with chunk preset",
+            "additional_params": {"chunk_preset_id": "qa"},
+        },
+        headers=admin_headers,
+    )
+    assert first_update.status_code == 200, first_update.text
+
+    second_update = await test_client.put(
+        f"/api/knowledge/databases/{db_id}",
+        json={
+            "name": knowledge_database["name"],
+            "description": "update without additional params",
+        },
+        headers=admin_headers,
+    )
+    assert second_update.status_code == 200, second_update.text
+
+    info_response = await test_client.get(f"/api/knowledge/databases/{db_id}", headers=admin_headers)
+    assert info_response.status_code == 200, info_response.text
+    assert info_response.json()["additional_params"]["chunk_preset_id"] == "qa"
+
+
 async def test_knowledge_routes_enforce_permissions(test_client, standard_user, knowledge_database):
     db_id = knowledge_database["db_id"]
 

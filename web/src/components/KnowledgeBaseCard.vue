@@ -40,6 +40,9 @@
           {{ getKbTypeLabel(database.kb_type || 'lightrag') }}
         </a-tag>
         <a-tag color="blue" size="small">{{ database.embed_info?.name || 'N/A' }}</a-tag>
+        <a-tag color="cyan" size="small">{{
+          chunkPresetLabelMap[database.additional_params?.chunk_preset_id || 'general'] || 'General'
+        }}</a-tag>
       </div>
     </div>
   </div>
@@ -79,6 +82,18 @@
         <span style="margin-left: 8px; font-size: 12px; color: var(--gray-500)"
           >上传文件后自动生成测试问题</span
         >
+      </a-form-item>
+
+      <a-form-item name="chunk_preset_id">
+        <template #label>
+          <span class="chunk-preset-label">
+            分块策略
+            <a-tooltip :title="editPresetDescription">
+              <QuestionCircleOutlined class="chunk-preset-help-icon" />
+            </a-tooltip>
+          </span>
+        </template>
+        <a-select v-model:value="editForm.chunk_preset_id" :options="chunkPresetOptions" />
       </a-form-item>
 
       <!-- 仅对 LightRAG 类型显示 LLM 配置 -->
@@ -122,8 +137,13 @@ import { useRouter } from 'vue-router'
 import { useDatabaseStore } from '@/stores/database'
 import { useUserStore } from '@/stores/user'
 import { getKbTypeLabel, getKbTypeColor } from '@/utils/kb_utils'
+import {
+  CHUNK_PRESET_OPTIONS,
+  CHUNK_PRESET_LABEL_MAP,
+  getChunkPresetDescription
+} from '@/utils/chunk_presets'
 import { message } from 'ant-design-vue'
-import { LeftOutlined } from '@ant-design/icons-vue'
+import { LeftOutlined, QuestionCircleOutlined } from '@ant-design/icons-vue'
 import { Pencil, Trash2, Copy } from 'lucide-vue-next'
 import { departmentApi } from '@/apis/department_api'
 import ModelSelectorComponent from '@/components/ModelSelectorComponent.vue'
@@ -220,11 +240,16 @@ const editForm = reactive({
   name: '',
   description: '',
   auto_generate_questions: false,
+  chunk_preset_id: 'general',
   llm_info: {
     provider: '',
     model_name: ''
   }
 })
+
+const chunkPresetOptions = CHUNK_PRESET_OPTIONS.map(({ label, value }) => ({ label, value }))
+const chunkPresetLabelMap = CHUNK_PRESET_LABEL_MAP
+const editPresetDescription = computed(() => getChunkPresetDescription(editForm.chunk_preset_id))
 
 const rules = {
   name: [{ required: true, message: '请输入知识库名称' }]
@@ -238,6 +263,7 @@ const showEditModal = () => {
   editForm.description = database.value.description || ''
   editForm.auto_generate_questions =
     database.value.additional_params?.auto_generate_questions || false
+  editForm.chunk_preset_id = database.value.additional_params?.chunk_preset_id || 'general'
 
   // 如果是 LightRAG 类型，加载当前的 LLM 配置
   if (database.value.kb_type === 'lightrag') {
@@ -283,7 +309,8 @@ const handleEditSubmit = () => {
         name: editForm.name,
         description: editForm.description,
         additional_params: {
-          auto_generate_questions: editForm.auto_generate_questions
+          auto_generate_questions: editForm.auto_generate_questions,
+          chunk_preset_id: editForm.chunk_preset_id || 'general'
         },
         share_config: {
           is_shared: finalIsShared,
@@ -427,5 +454,17 @@ const deleteDatabase = () => {
   gap: 6px;
   align-items: center;
   flex-wrap: wrap;
+}
+
+.chunk-preset-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chunk-preset-help-icon {
+  color: var(--gray-500);
+  cursor: help;
+  font-size: 14px;
 }
 </style>

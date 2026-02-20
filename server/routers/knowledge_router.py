@@ -13,6 +13,7 @@ from starlette.responses import StreamingResponse
 from src.services.task_service import TaskContext, tasker
 from server.utils.auth_middleware import get_admin_user, get_required_user
 from src import config, knowledge_base
+from src.knowledge.chunking.ragflow_like.presets import ensure_chunk_defaults_in_additional_params
 from src.knowledge.indexing import SUPPORTED_FILE_EXTENSIONS, is_supported_file_extension, process_file_to_markdown
 from src.knowledge.utils import calculate_content_hash
 from src.models.embed import test_all_embedding_models_status, test_embedding_model_status
@@ -116,6 +117,7 @@ async def create_database(
                 params.pop("reranker_config", None)
 
         remove_reranker_config(kb_type, additional_params)
+        additional_params = ensure_chunk_defaults_in_additional_params(additional_params)
 
         embed_info = config.embed_model_names[embed_model_name]
         # 将Pydantic模型转换为字典以便JSON序列化
@@ -180,7 +182,7 @@ async def update_database_info(
     name: str = Body(...),
     description: str = Body(...),
     llm_info: dict = Body(None),
-    additional_params: dict = Body({}),
+    additional_params: dict | None = Body(None),
     share_config: dict = Body(None),
     current_user: User = Depends(get_admin_user),
 ):
@@ -190,6 +192,9 @@ async def update_database_info(
         f"additional_params={additional_params}, share_config={share_config}"
     )
     try:
+        if additional_params is not None:
+            additional_params = ensure_chunk_defaults_in_additional_params(additional_params)
+
         database = await knowledge_base.update_database(
             db_id,
             name,
@@ -267,7 +272,13 @@ async def add_documents(
         "chunk_size": params.get("chunk_size", 1000),
         "chunk_overlap": params.get("chunk_overlap", 200),
         "qa_separator": params.get("qa_separator", ""),
+        "chunk_preset_id": params.get("chunk_preset_id"),
+        "chunk_parser_config": params.get("chunk_parser_config"),
     }
+    if not indexing_params.get("chunk_preset_id"):
+        indexing_params.pop("chunk_preset_id", None)
+    if not isinstance(indexing_params.get("chunk_parser_config"), dict):
+        indexing_params.pop("chunk_parser_config", None)
 
     # URL 解析与入库（需白名单验证）
     if content_type == "url":
