@@ -136,6 +136,7 @@
                 :ensure-thread="ensureActiveThread"
                 :has-state-content="hasAgentStateContent"
                 :is-panel-open="isAgentPanelOpen"
+                :mention="mentionConfig"
                 @send="handleSendOrStop"
                 @attachment-changed="handleAgentStateRefresh"
                 @toggle-panel="toggleAgentPanel"
@@ -209,7 +210,7 @@ import { useAgentStore } from '@/stores/agent'
 import { useChatUIStore } from '@/stores/chatUI'
 import { storeToRefs } from 'pinia'
 import { MessageProcessor } from '@/utils/messageProcessor'
-import { agentApi, threadApi } from '@/apis'
+import { agentApi, threadApi, databaseApi, mcpApi } from '@/apis'
 import HumanApprovalModal from '@/components/HumanApprovalModal.vue'
 import { useApproval } from '@/composables/useApproval'
 import { useAgentStreamHandler } from '@/composables/useAgentStreamHandler'
@@ -225,7 +226,14 @@ const emit = defineEmits(['open-config', 'open-agent-modal'])
 // ==================== STORE MANAGEMENT ====================
 const agentStore = useAgentStore()
 const chatUIStore = useChatUIStore()
-const { agents, selectedAgentId, defaultAgentId, selectedAgentConfigId } = storeToRefs(agentStore)
+const {
+  agents,
+  selectedAgentId,
+  defaultAgentId,
+  selectedAgentConfigId,
+  agentConfig,
+  configurableItems
+} = storeToRefs(agentStore)
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
@@ -267,6 +275,10 @@ const threadMessages = ref({})
 const localUIState = reactive({
   isInitialRender: true
 })
+
+// Mention resources
+const availableKnowledgeBases = ref([])
+const availableMcps = ref([])
 
 // Agent Panel State
 const isAgentPanelOpen = ref(false)
@@ -326,12 +338,21 @@ const currentAgentState = computed(() => {
 })
 
 const countFiles = (files) => {
-  if (!Array.isArray(files)) return 0
-  let c = 0
-  for (const item of files) {
-    if (item && typeof item === 'object') c += Object.keys(item).length
+  // 支持 dict 格式（StateBackend 格式）和 array 格式
+  if (!files) return 0
+  if (typeof files === 'object' && !Array.isArray(files)) {
+    // dict 格式: {"/attachments/file.md": {...}, ...}
+    return Object.keys(files).length
   }
-  return c
+  if (Array.isArray(files)) {
+    // array 格式
+    let c = 0
+    for (const item of files) {
+      if (item && typeof item === 'object') c += Object.keys(item).length
+    }
+    return c
+  }
+  return 0
 }
 
 const hasAgentStateContent = computed(() => {
@@ -339,8 +360,65 @@ const hasAgentStateContent = computed(() => {
   if (!s) return false
   const todoCount = Array.isArray(s.todos) ? s.todos.length : 0
   const fileCount = countFiles(s.files)
-  const attachmentCount = Array.isArray(s.attachments) ? s.attachments.length : 0
-  return todoCount > 0 || fileCount > 0 || attachmentCount > 0
+  return todoCount > 0 || fileCount > 0
+})
+
+const mentionConfig = computed(() => {
+  const rawFiles = currentAgentState.value?.files || {}
+  const files = []
+
+  // 处理 files - 兼容字典格式 {"/path/file": {content: [...]}} 和旧数组格式
+  if (typeof rawFiles === 'object' && !Array.isArray(rawFiles) && rawFiles !== null) {
+    // 新格式：字典格式 {"/attachments/xxx/file.md": {...}}
+    Object.entries(rawFiles).forEach(([filePath, fileData]) => {
+      files.push({
+        path: filePath,
+        ...fileData
+      })
+    })
+  } else if (Array.isArray(rawFiles)) {
+    // 旧格式：数组格式
+    rawFiles.forEach((item) => {
+      if (typeof item === 'object' && item !== null) {
+        Object.entries(item).forEach(([filePath, fileData]) => {
+          files.push({
+            path: filePath,
+            ...fileData
+          })
+        })
+      }
+    })
+  }
+
+  // Filter KBs and MCPs based on agent config
+  const configItems = configurableItems.value || {}
+  const currentConfig = agentConfig.value || {}
+  const allowedKbNames = new Set()
+  const allowedMcpNames = new Set()
+
+  Object.entries(configItems).forEach(([key, item]) => {
+    const kind = item?.template_metadata?.kind
+    const val = currentConfig[key]
+
+    if (Array.isArray(val)) {
+      if (kind === 'knowledges') {
+        val.forEach((v) => allowedKbNames.add(v))
+      } else if (kind === 'mcps') {
+        val.forEach((v) => allowedMcpNames.add(v))
+      }
+    }
+  })
+
+  const knowledgeBases = availableKnowledgeBases.value.filter((kb) => allowedKbNames.has(kb.name))
+  const mcps = availableMcps.value.filter((mcp) => allowedMcpNames.has(mcp.name))
+
+  if (!files.length && !knowledgeBases.length && !mcps.length) return null
+
+  return {
+    files,
+    knowledgeBases,
+    mcps
+  }
 })
 
 const currentThreadMessages = computed(() => threadMessages.value[currentChatId.value] || [])
@@ -590,9 +668,41 @@ const fetchAgentState = async (agentId, threadId) => {
   if (!agentId || !threadId) return
   try {
     const res = await agentApi.getAgentState(agentId, threadId)
-    const ts = getThreadState(threadId)
-    if (ts) ts.agentState = res.agent_state || null
+    // 确保更新 currentChatId 对应的 state，因为 currentAgentState 依赖它
+    // 如果 currentChatId 为 null，使用传入的 threadId
+    const targetChatId = currentChatId.value || threadId
+    console.log(
+      '[fetchAgentState] agentId:',
+      agentId,
+      'threadId:',
+      threadId,
+      'targetChatId:',
+      targetChatId,
+      'agent_state:',
+      JSON.stringify(res.agent_state || {})?.slice(0, 200)
+    )
+    const ts = getThreadState(targetChatId)
+    if (ts) {
+      ts.agentState = res.agent_state || null
+    } else {
+      // 如果 targetChatId 对应的 state 不存在，创建一个
+      const newTs = getThreadState(threadId)
+      if (newTs) newTs.agentState = res.agent_state || null
+    }
   } catch (error) {}
+}
+
+const fetchMentionResources = async () => {
+  try {
+    const [dbsRes, mcpsRes] = await Promise.all([
+      databaseApi.getAccessibleDatabases().catch(() => ({ databases: [] })),
+      mcpApi.getMcpServers().catch(() => ({ data: [] }))
+    ])
+    availableKnowledgeBases.value = dbsRes.databases || []
+    availableMcps.value = mcpsRes.data || []
+  } catch (e) {
+    console.warn('Failed to fetch mention resources', e)
+  }
 }
 
 const ensureActiveThread = async (title = '新的对话') => {
@@ -983,9 +1093,20 @@ const toggleSidebar = () => {
 }
 const openAgentModal = () => emit('open-agent-modal')
 
-const handleAgentStateRefresh = async () => {
-  if (!currentAgentId.value || !currentChatId.value) return
-  await fetchAgentState(currentAgentId.value, currentChatId.value)
+const handleAgentStateRefresh = async (threadId = null) => {
+  if (!currentAgentId.value) return
+  // 优先使用传入的 threadId，否则使用当前的 currentChatId
+  let chatId = threadId || currentChatId.value
+  console.log(
+    '[handleAgentStateRefresh] input threadId:',
+    threadId,
+    'currentChatId:',
+    currentChatId.value,
+    'final chatId:',
+    chatId
+  )
+  if (!chatId) return
+  await fetchAgentState(currentAgentId.value, chatId)
 }
 
 const toggleAgentPanel = () => {
@@ -1096,6 +1217,7 @@ const initAll = async () => {
     if (!agentStore.isInitialized) {
       await agentStore.initialize()
     }
+    await fetchMentionResources()
   } catch (error) {
     handleChatError(error, 'load')
   }

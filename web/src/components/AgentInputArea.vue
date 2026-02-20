@@ -8,6 +8,7 @@
     :send-button-disabled="sendButtonDisabled"
     :placeholder="placeholder"
     :force-multi-line="hasStateContent"
+    :mention="mention"
     @send="handleSend"
     @keydown="handleKeyDown"
   >
@@ -68,7 +69,8 @@ const props = defineProps({
   threadId: { type: String, default: null },
   ensureThread: { type: Function, required: true },
   hasStateContent: { type: Boolean, default: false },
-  isPanelOpen: { type: Boolean, default: false }
+  isPanelOpen: { type: Boolean, default: false },
+  mention: { type: Object, default: () => null }
 })
 
 const emit = defineEmits([
@@ -112,7 +114,7 @@ const handleAttachmentUpload = async (files) => {
       await threadApi.uploadThreadAttachment(threadId, file)
       message.success(`${file.name} 上传成功`)
     }
-    emit('attachment-changed')
+    emit('attachment-changed', threadId)
   } catch (error) {
     handleChatError(error, 'upload')
   }
