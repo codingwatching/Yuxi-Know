@@ -18,7 +18,6 @@ class AttachmentState(AgentState):
     """扩展 AgentState 以支持附件"""
 
     attachments: NotRequired[list[dict]]
-    files: NotRequired[dict[str, str]]  # {"/attachments/xxx/file.md": content}
 
 
 def _build_attachment_prompt(attachments: Sequence[dict]) -> str | None:
