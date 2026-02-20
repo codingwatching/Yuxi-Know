@@ -58,6 +58,15 @@
           <ApiOutlined class="icon" />
           <span>MCP 管理</span>
         </div>
+        <div
+          class="sider-item"
+          :class="{ activesec: activeTab === 'skills' }"
+          @click="activeTab = 'skills'"
+          v-if="userStore.isSuperAdmin"
+        >
+          <FolderOutlined class="icon" />
+          <span>Skills 管理</span>
+        </div>
       </div>
 
       <!-- 顶部导航 (Mobile) -->
@@ -96,6 +105,14 @@
         </div>
         <div
           class="nav-item"
+          :class="{ active: activeTab === 'skills' }"
+          @click="activeTab = 'skills'"
+          v-if="userStore.isSuperAdmin"
+        >
+          Skills 管理
+        </div>
+        <div
+          class="nav-item"
           :class="{ active: activeTab === 'department' }"
           @click="activeTab = 'department'"
           v-if="userStore.isSuperAdmin"
@@ -123,6 +140,10 @@
             <McpServersComponent />
           </div>
 
+          <div v-show="activeTab === 'skills'" v-if="userStore.isSuperAdmin">
+            <SkillsManagerComponent />
+          </div>
+
           <div v-show="activeTab === 'department'" v-if="userStore.isSuperAdmin">
             <DepartmentManagementComponent />
           </div>
@@ -140,13 +161,15 @@ import {
   CodeOutlined,
   UserOutlined,
   ApiOutlined,
-  TeamOutlined
+  TeamOutlined,
+  FolderOutlined
 } from '@ant-design/icons-vue'
 import BasicSettingsSection from '@/components/BasicSettingsSection.vue'
 import ModelProvidersComponent from '@/components/ModelProvidersComponent.vue'
 import UserManagementComponent from '@/components/UserManagementComponent.vue'
 import McpServersComponent from '@/components/McpServersComponent.vue'
 import DepartmentManagementComponent from '@/components/DepartmentManagementComponent.vue'
+import SkillsManagerComponent from '@/components/SkillsManagerComponent.vue'
 
 const props = defineProps({
   visible: {

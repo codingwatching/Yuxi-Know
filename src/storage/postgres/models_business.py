@@ -171,6 +171,35 @@ class AgentConfig(Base):
         }
 
 
+class Skill(Base):
+    """Skill 元数据模型（内容存文件系统，索引存数据库）"""
+
+    __tablename__ = "skills"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    slug = Column(String(128), nullable=False, unique=True, index=True, comment="技能唯一标识（目录名）")
+    name = Column(String(128), nullable=False, comment="技能名称（来自 SKILL.md frontmatter.name）")
+    description = Column(Text, nullable=False, comment="技能描述（来自 SKILL.md frontmatter.description）")
+    dir_path = Column(String(512), nullable=False, comment="技能目录路径（相对 save_dir）")
+    created_by = Column(String(64), nullable=True)
+    updated_by = Column(String(64), nullable=True)
+    created_at = Column(DateTime, default=utc_now_naive)
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "slug": self.slug,
+            "name": self.name,
+            "description": self.description,
+            "dir_path": self.dir_path,
+            "created_by": self.created_by,
+            "updated_by": self.updated_by,
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }
+
+
 class Conversation(Base):
     """Conversation table - 对话表"""
 

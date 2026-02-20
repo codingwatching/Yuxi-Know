@@ -1,9 +1,9 @@
-from deepagents.backends import StateBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from langchain.agents import create_agent
 from langchain.agents.middleware import ModelRetryMiddleware
 
 from src.agents.common import BaseAgent, load_chat_model
+from src.agents.common.backends import create_agent_composite_backend
 from src.agents.common.middlewares import (
     RuntimeConfigMiddleware,
     save_attachments_to_fs,
@@ -13,7 +13,7 @@ from src.services.mcp_service import get_tools_from_all_servers
 
 def _create_fs_backend(rt):
     """创建文件存储后端"""
-    return StateBackend(rt)
+    return create_agent_composite_backend(rt)
 
 
 class ChatbotAgent(BaseAgent):

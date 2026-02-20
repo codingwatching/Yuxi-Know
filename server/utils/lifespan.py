@@ -4,6 +4,7 @@ from fastapi import FastAPI
 
 from src.services.task_service import tasker
 from src.services.mcp_service import init_mcp_servers
+from src.services.skill_service import init_skills_cache
 from src.storage.postgres.manager import pg_manager
 from src.knowledge import knowledge_base
 from src.utils import logger
@@ -25,6 +26,12 @@ async def lifespan(app: FastAPI):
         await init_mcp_servers()
     except Exception as e:
         logger.error(f"Failed to initialize MCP servers during startup: {e}")
+
+    # 初始化 Skills 缓存
+    try:
+        await init_skills_cache()
+    except Exception as e:
+        logger.error(f"Failed to initialize skills cache during startup: {e}")
 
     # 初始化知识库管理器
     try:

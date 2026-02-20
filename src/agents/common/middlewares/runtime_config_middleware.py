@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import PurePosixPath
 from typing import Any
 
+from deepagents.middleware.skills import SKILLS_SYSTEM_PROMPT
 from langchain.agents.middleware import AgentMiddleware, ModelRequest, ModelResponse
 from langchain_core.messages import SystemMessage
 
 from src.agents.common import load_chat_model
 from src.agents.common.tools import get_buildin_tools, get_kb_based_tools
 from src.services.mcp_service import get_enabled_mcp_tools
+from src.services.skill_service import get_skill_prompt_metadata_by_slugs
 from src.utils.datetime_utils import shanghai_now
 from src.utils.logging_config import logger
 
@@ -31,9 +34,12 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         tools_context_name: str = "tools",
         knowledges_context_name: str = "knowledges",
         mcps_context_name: str = "mcps",
+        skills_context_name: str = "skills",
         enable_model_override: bool = True,
         enable_system_prompt_override: bool = True,
         enable_tools_override: bool = True,
+        enable_skills_prompt_override: bool = True,
+        skills_sources_for_prompt: list[str] | None = None,
     ):
         """初始化中间件
 
@@ -44,9 +50,12 @@ class RuntimeConfigMiddleware(AgentMiddleware):
             tools_context_name: 上下文中的工具列表字段名称（默认 "tools"）
             knowledges_context_name: 上下文中的知识库列表字段名称（默认 "knowledges"）
             mcps_context_name: 上下文中的 MCP 服务器列表字段名称（默认 "mcps"）
+            skills_context_name: 上下文中的 skills 列表字段名称（默认 "skills"）
             enable_model_override: 是否允许覆盖模型配置（默认 True）
             enable_system_prompt_override: 是否允许覆盖系统提示词（默认 True）
             enable_tools_override: 是否允许覆盖工具列表（默认 True）
+            enable_skills_prompt_override: 是否启用 skills 提示段注入（默认 True）
+            skills_sources_for_prompt: skills 来源路径（用于提示词展示，默认 ["/skills/"]）
         """
         super().__init__()
         # 存储自定义字段名称
@@ -55,10 +64,13 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         self.tools_context_name = tools_context_name
         self.knowledges_context_name = knowledges_context_name
         self.mcps_context_name = mcps_context_name
+        self.skills_context_name = skills_context_name
         # 存储覆盖配置
         self.enable_model_override = enable_model_override
         self.enable_system_prompt_override = enable_system_prompt_override
         self.enable_tools_override = enable_tools_override
+        self.enable_skills_prompt_override = enable_skills_prompt_override
+        self.skills_sources_for_prompt = skills_sources_for_prompt or ["/skills/"]
 
         self.tools: list[Any] = []
         # 预加载工具列表（仅当启用工具覆盖时）
@@ -75,7 +87,8 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         logger.debug(
             f"Initialized RuntimeConfigMiddleware with custom field names: model={model_context_name}, "
             f"system_prompt={system_prompt_context_name}, tools={tools_context_name}, "
-            f"knowledges={knowledges_context_name}, mcps={mcps_context_name}"
+            f"knowledges={knowledges_context_name}, mcps={mcps_context_name}, "
+            f"skills={skills_context_name}"
         )
 
     async def awrap_model_call(
@@ -106,9 +119,21 @@ class RuntimeConfigMiddleware(AgentMiddleware):
         if self.enable_system_prompt_override:
             cur_datetime = f"当前时间：{shanghai_now().strftime('%Y-%m-%d %H:%M:%S')} UTC"
             system_prompt = getattr(runtime_context, self.system_prompt_context_name, "") or ""
-            new_content = list(request.system_message.content_blocks) + [
-                {"type": "text", "text": f"{cur_datetime}\n\n{system_prompt}"}
-            ]
+            merged_system_prompt = f"{cur_datetime}\n\n{system_prompt}"
+
+            configured_skills = getattr(runtime_context, self.skills_context_name, None) or []
+            if self.enable_skills_prompt_override and configured_skills:
+                if self._supports_skill_prompt(request):
+                    skills_meta = get_skill_prompt_metadata_by_slugs(configured_skills)
+                    skills_section = self._build_skills_section(skills_meta)
+                    merged_system_prompt = f"{merged_system_prompt}\n\n{skills_section}"
+                else:
+                    logger.warning(
+                        "RuntimeConfigMiddleware: skills configured but read_file unavailable, skip skills prompt"
+                    )
+
+            content_blocks = list(request.system_message.content_blocks) if request.system_message else []
+            new_content = content_blocks + [{"type": "text", "text": merged_system_prompt}]
             new_system_message = SystemMessage(content=new_content)
             overrides["system_message"] = new_system_message
 
@@ -143,3 +168,36 @@ class RuntimeConfigMiddleware(AgentMiddleware):
                 selected_tools.extend(mcp_tools)
 
         return selected_tools
+
+    def _supports_skill_prompt(self, request: ModelRequest) -> bool:
+        """仅当请求工具中包含 read_file 时，才注入 skills 指引。"""
+        for tool in request.tools or []:
+            if getattr(tool, "name", None) == "read_file":
+                return True
+        return False
+
+    def _format_skills_locations(self, sources: list[str]) -> str:
+        locations = []
+        for i, source_path in enumerate(sources):
+            name = PurePosixPath(source_path.rstrip("/")).name.capitalize()
+            suffix = " (higher priority)" if i == len(sources) - 1 else ""
+            locations.append(f"**{name} Skills**: `{source_path}`{suffix}")
+        return "\n".join(locations)
+
+    def _format_skills_list(self, skills_meta: list[dict[str, str]]) -> str:
+        if not skills_meta:
+            return f"(No skills available yet. You can create skills in {' or '.join(self.skills_sources_for_prompt)})"
+
+        lines = []
+        for skill in skills_meta:
+            lines.append(f"- **{skill['name']}**: {skill['description']}")
+            lines.append(f"  -> Read `{skill['path']}` for full instructions")
+        return "\n".join(lines)
+
+    def _build_skills_section(self, skills_meta: list[dict[str, str]]) -> str:
+        skills_locations = self._format_skills_locations(self.skills_sources_for_prompt)
+        skills_list = self._format_skills_list(skills_meta)
+        return SKILLS_SYSTEM_PROMPT.format(
+            skills_locations=skills_locations,
+            skills_list=skills_list,
+        )

@@ -1,6 +1,5 @@
 """Deep Agent - 基于create_deep_agent的深度分析智能体"""
 
-from deepagents.backends import StateBackend
 from deepagents.middleware.filesystem import FilesystemMiddleware
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import SubAgentMiddleware
@@ -10,16 +9,18 @@ from langchain.agents.middleware import (
 )
 
 from src.agents.common import BaseAgent, load_chat_model
+from src.agents.common.backends import create_agent_composite_backend
 from src.agents.common.middlewares import RuntimeConfigMiddleware, SummaryOffloadMiddleware, save_attachments_to_fs
 from src.agents.common.tools import get_tavily_search
 from src.services.mcp_service import get_tools_from_all_servers
+
 
 from .context import DeepContext
 
 
 def _create_fs_backend(rt):
     """创建文件存储后端"""
-    return StateBackend(rt)
+    return create_agent_composite_backend(rt)
 
 
 def _get_research_sub_agent(search_tools: list) -> dict:
