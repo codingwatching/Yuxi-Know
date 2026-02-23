@@ -14,7 +14,11 @@ from langgraph.types import Command
 from src.agents.common import load_chat_model
 from src.agents.common.tools import get_buildin_tools, get_kb_based_tools
 from src.services.mcp_service import get_enabled_mcp_tools
-from src.services.skill_service import get_dependency_bundle_for_activated_skills, get_skill_prompt_metadata_by_slugs
+from src.services.skill_service import (
+    get_dependency_bundle_for_activated_skills,
+    get_skill_prompt_metadata_by_slugs,
+    is_valid_skill_slug,
+)
 from src.utils.datetime_utils import shanghai_now
 from src.utils.logging_config import logger
 
@@ -283,7 +287,10 @@ class RuntimeConfigMiddleware(AgentMiddleware):
             return None
         if parts[0] != "skills" or parts[2] != "SKILL.md":
             return None
-        return parts[1]
+        slug = parts[1]
+        if not is_valid_skill_slug(slug):
+            return None
+        return slug
 
     def _merge_activated_skill_update(self, result: Any, slug: str):
         if isinstance(result, Command):

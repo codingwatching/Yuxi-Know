@@ -18,7 +18,8 @@ from src.storage.postgres.manager import pg_manager
 from src.storage.postgres.models_business import Skill
 from src.utils.logging_config import logger
 
-SKILL_NAME_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+SKILL_SLUG_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
+SKILL_NAME_PATTERN = SKILL_SLUG_PATTERN
 FRONTMATTER_PATTERN = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 TEXT_FILE_EXTENSIONS = {
@@ -69,6 +70,19 @@ def _normalize_string_list(values: list[str] | None) -> list[str]:
             continue
         seen.add(item)
         normalized.append(item)
+    return normalized
+
+
+def is_valid_skill_slug(slug: str) -> bool:
+    if not isinstance(slug, str):
+        return False
+    return bool(SKILL_SLUG_PATTERN.match(slug.strip()))
+
+
+def validate_skill_slug(slug: str) -> str:
+    normalized = slug.strip() if isinstance(slug, str) else ""
+    if not is_valid_skill_slug(normalized):
+        raise ValueError("无效 skill slug")
     return normalized
 
 
@@ -491,6 +505,7 @@ async def import_skill_zip(
 
 
 async def get_skill_or_raise(db: AsyncSession, slug: str) -> Skill:
+    slug = validate_skill_slug(slug)
     repo = SkillRepository(db)
     item = await repo.get_by_slug(slug)
     if not item:

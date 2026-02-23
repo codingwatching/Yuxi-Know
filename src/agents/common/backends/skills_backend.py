@@ -6,7 +6,7 @@ from typing import Any
 from deepagents.backends import CompositeBackend, FilesystemBackend, StateBackend
 from deepagents.backends.protocol import EditResult, FileDownloadResponse, FileUploadResponse, WriteResult
 
-from src.services.skill_service import get_expanded_visible_skill_slugs, get_skills_root_dir
+from src.services.skill_service import get_expanded_visible_skill_slugs, get_skills_root_dir, is_valid_skill_slug
 
 
 class SelectedSkillsReadonlyBackend(FilesystemBackend):
@@ -15,7 +15,9 @@ class SelectedSkillsReadonlyBackend(FilesystemBackend):
     def __init__(self, *, selected_slugs: list[str] | None):
         super().__init__(root_dir=get_skills_root_dir(), virtual_mode=True)
         self._selected_slugs = {
-            str(slug).strip() for slug in (selected_slugs or []) if isinstance(slug, str) and str(slug).strip()
+            str(slug).strip()
+            for slug in (selected_slugs or [])
+            if isinstance(slug, str) and is_valid_skill_slug(str(slug))
         }
 
     def _extract_slug(self, path: str | None) -> str | None:

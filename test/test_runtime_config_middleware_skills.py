@@ -185,6 +185,23 @@ async def test_awrap_tool_call_activates_skill_when_read_skill_md():
 
 
 @pytest.mark.asyncio
+async def test_awrap_tool_call_skips_invalid_skill_slug_path():
+    middleware = _build_middleware()
+    request = _FakeToolCallRequest(
+        tool_call={
+            "name": "read_file",
+            "args": {"file_path": "/skills/../SKILL.md"},
+        }
+    )
+
+    async def _handler(_request):
+        return ToolMessage(content="ok", tool_call_id="tc-1")
+
+    result = await middleware.awrap_tool_call(request, _handler)
+    assert isinstance(result, ToolMessage)
+
+
+@pytest.mark.asyncio
 async def test_awrap_tool_call_merges_with_existing_command_update():
     middleware = _build_middleware()
     request = _FakeToolCallRequest(

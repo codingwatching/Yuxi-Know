@@ -52,6 +52,13 @@ def _raise_from_value_error(e: ValueError) -> None:
     raise HTTPException(status_code=status_code, detail=message)
 
 
+def _cleanup_export_file(path: str) -> None:
+    try:
+        Path(path).unlink(missing_ok=True)
+    except Exception as e:
+        logger.warning(f"Failed to cleanup exported skill archive '{path}': {e}")
+
+
 @skills.get("")
 async def list_skills_route(
     _current_user: User = Depends(get_admin_user),
@@ -252,7 +259,7 @@ async def export_skill_route(
     """导出技能压缩包（仅超级管理员）。"""
     try:
         export_path, download_name = await export_skill_zip(db, slug)
-        background_tasks.add_task(lambda p: Path(p).unlink(missing_ok=True), export_path)
+        background_tasks.add_task(_cleanup_export_file, export_path)
         return FileResponse(
             path=export_path,
             media_type="application/zip",

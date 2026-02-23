@@ -59,7 +59,13 @@
             <div class="dependency-panel">
               <div class="dependency-header">
                 <span class="dependency-title">依赖管理</span>
-                <a-button type="primary" size="small" :loading="savingDependencies" @click="saveDependencies">
+                <a-button
+                  type="primary"
+                  size="small"
+                  :loading="savingDependencies"
+                  :disabled="loading || savingDependencies"
+                  @click="saveDependencies"
+                >
                   保存依赖
                 </a-button>
               </div>
@@ -70,6 +76,7 @@
                     mode="multiple"
                     :options="toolDependencyOptions"
                     placeholder="选择工具依赖"
+                    :disabled="loading || savingDependencies"
                     allow-clear
                   />
                 </a-form-item>
@@ -79,6 +86,7 @@
                     mode="multiple"
                     :options="mcpDependencyOptions"
                     placeholder="选择 MCP 服务依赖"
+                    :disabled="loading || savingDependencies"
                     allow-clear
                   />
                 </a-form-item>
@@ -88,6 +96,7 @@
                     mode="multiple"
                     :options="skillDependencyOptions"
                     placeholder="选择 Skill 依赖"
+                    :disabled="loading || savingDependencies"
                     allow-clear
                   />
                 </a-form-item>

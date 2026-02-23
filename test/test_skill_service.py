@@ -37,6 +37,12 @@ def test_parse_skill_markdown_requires_frontmatter():
         svc._parse_skill_markdown("# missing")
 
 
+def test_validate_skill_slug():
+    assert svc.validate_skill_slug("demo-skill") == "demo-skill"
+    with pytest.raises(ValueError, match="无效 skill slug"):
+        svc.validate_skill_slug("../bad")
+
+
 def test_get_skill_prompt_metadata_by_slugs_dedup_and_skip_missing(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         svc,
