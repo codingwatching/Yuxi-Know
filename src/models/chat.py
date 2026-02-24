@@ -1,11 +1,16 @@
 import os
 import traceback
 
-from openai import AsyncOpenAI
 from tenacity import before_sleep_log, retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 from src import config
 from src.utils import logger
+from src.utils.langfuse_integration import is_langfuse_enabled
+
+if is_langfuse_enabled():
+    from langfuse.openai import AsyncOpenAI
+else:
+    from openai import AsyncOpenAI
 
 
 def split_model_spec(model_spec, sep="/"):
