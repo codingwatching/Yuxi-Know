@@ -825,7 +825,10 @@ const enqueueLoadingChunkForTyping = (threadId, chunk) => {
   }
 
   const msg = chunk.msg || {}
-  const contentChars = splitChars(msg.content)
+  const msgType = String(msg.type || '').toLowerCase()
+  const isToolMessage = msgType === 'tool' || msgType.includes('tool')
+  const streamText = typeof chunk.response === 'string' ? chunk.response : ''
+  const contentChars = !isToolMessage ? splitChars(streamText) : []
   if (contentChars.length === 0) {
     typingChunkQueue.push({ threadId, chunk, isChar: false })
     scheduleTypingRender()
@@ -838,6 +841,7 @@ const enqueueLoadingChunkForTyping = (threadId, chunk) => {
       isChar: true,
       chunk: {
         ...chunk,
+        response: char,
         msg: {
           ...msg,
           content: char
