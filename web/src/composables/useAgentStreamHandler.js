@@ -56,7 +56,7 @@ const processStreamResponse = async (response, onChunk) => {
   } finally {
     try {
       reader.releaseLock()
-    } catch (e) {
+    } catch {
       // Ignore errors on releasing lock
     }
   }
@@ -128,7 +128,7 @@ export function useAgentStreamHandler({
           todoCount: Array.isArray(chunk.agent_state?.todos) ? chunk.agent_state.todos.length : 0,
           fileKeys: chunk.agent_state?.files ? Object.keys(chunk.agent_state.files) : []
         })
-        if ((unref(supportsTodo) || unref(supportsFiles)) && chunk.agent_state) {
+        if (chunk.agent_state) {
           console.log(`${debugPrefix}[agent_state_apply]`, {
             threadId,
             todos: chunk.agent_state?.todos || [],
@@ -137,7 +137,7 @@ export function useAgentStreamHandler({
           threadState.agentState = chunk.agent_state
         } else {
           console.warn(`${debugPrefix}[agent_state_skip]`, {
-            reason: 'capability_gate_or_empty_state',
+            reason: 'empty_state',
             supportsTodo: unref(supportsTodo),
             supportsFiles: unref(supportsFiles),
             hasAgentState: !!chunk.agent_state,

@@ -3,7 +3,7 @@ import uuid
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, UploadFile, File
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.storage.postgres.models_business import User
@@ -13,6 +13,13 @@ from src import config as conf
 from src.agents import agent_manager
 from src.models import select_model
 from src.services.chat_stream_service import get_agent_state_view, stream_agent_chat, stream_agent_resume
+from src.services.agent_run_service import (
+    cancel_agent_run_view,
+    create_agent_run_view,
+    get_active_run_by_thread,
+    get_agent_run_view,
+    stream_agent_run_events,
+)
 from src.services.conversation_service import (
     create_thread_view,
     delete_thread_attachment_view,
@@ -59,6 +66,12 @@ class AgentConfigUpdate(BaseModel):
     pics: list[str] | None = None
     examples: list[str] | None = None
     config_json: dict | None = None
+
+
+class AgentRunCreate(BaseModel):
+    query: str
+    config: dict = Field(default_factory=dict)
+    image_content: str | None = None
 
 
 chat = APIRouter(prefix="/chat", tags=["chat"])
@@ -392,6 +405,76 @@ async def chat_agent(
         ),
         media_type="application/json",
     )
+
+
+@chat.post("/agent/{agent_id}/runs")
+async def create_agent_run(
+    agent_id: str,
+    payload: AgentRunCreate,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """创建异步 run 任务并入队（需要登录）"""
+    return await create_agent_run_view(
+        agent_id=agent_id,
+        query=payload.query,
+        config=payload.config or {},
+        image_content=payload.image_content,
+        current_user_id=str(current_user.id),
+        db=db,
+    )
+
+
+@chat.get("/runs/{run_id}")
+async def get_agent_run(
+    run_id: str,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取 run 状态（需要登录）"""
+    return await get_agent_run_view(run_id=run_id, current_user_id=str(current_user.id), db=db)
+
+
+@chat.post("/runs/{run_id}/cancel")
+async def cancel_agent_run(
+    run_id: str,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """取消 run（需要登录）"""
+    return await cancel_agent_run_view(run_id=run_id, current_user_id=str(current_user.id), db=db)
+
+
+@chat.get("/runs/{run_id}/events")
+async def stream_run_events(
+    run_id: str,
+    after_seq: str = Query("0"),
+    current_user: User = Depends(get_required_user),
+):
+    """SSE 拉取 run 事件（需要登录）"""
+    return StreamingResponse(
+        stream_agent_run_events(
+            run_id=run_id,
+            after_seq=after_seq,
+            current_user_id=str(current_user.id),
+        ),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@chat.get("/thread/{thread_id}/active_run")
+async def get_thread_active_run(
+    thread_id: str,
+    current_user: User = Depends(get_required_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """获取当前会话活跃 run（需要登录）"""
+    return await get_active_run_by_thread(thread_id=thread_id, current_user_id=str(current_user.id), db=db)
 
 
 # =============================================================================

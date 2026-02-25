@@ -242,6 +242,19 @@ const {
 
 // ==================== LOCAL CHAT & UI STATE ====================
 const userInput = ref('')
+const useRunsApi =
+  import.meta.env.VITE_USE_RUNS_API === 'true' &&
+  localStorage.getItem('force_legacy_stream') !== 'true'
+
+const ACTIVE_RUN_STORAGE_TTL_MS = 60 * 60 * 1000
+const ACTIVE_RUN_CLIENT_ID = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+const typingChunkQueue = []
+let typingAnimationFrameId = null
+let typingLastFrameTs = 0
+let pendingTypingChars = 0
+const MIN_TYPING_CPS = 32
+const MAX_TYPING_CPS = 320
+const TYPING_BACKLOG_HIGH_WATERMARK = 500
 
 // 从智能体元数据获取示例问题
 const exampleQuestions = computed(() => {
@@ -347,21 +360,11 @@ const currentAgentState = computed(() => {
 })
 
 const countFiles = (files) => {
-  // 支持 dict 格式（StateBackend 格式）和 array 格式
   if (!files) return 0
-  if (typeof files === 'object' && !Array.isArray(files)) {
-    // dict 格式: {"/attachments/file.md": {...}, ...}
-    return Object.keys(files).length
-  }
   if (Array.isArray(files)) {
-    // array 格式
-    let c = 0
-    for (const item of files) {
-      if (item && typeof item === 'object') c += Object.keys(item).length
-    }
-    return c
+    return files.reduce((c, item) => c + (item && typeof item === 'object' ? Object.keys(item).length : 0), 0)
   }
-  return 0
+  return typeof files === 'object' ? Object.keys(files).length : 0
 }
 
 const hasAgentStateContent = computed(() => {
@@ -508,6 +511,9 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  stopTypingRenderLoop()
+  typingChunkQueue.length = 0
+  pendingTypingChars = 0
   scrollController.cleanup()
   // 清理所有线程状态
   resetOnGoingConv()
@@ -521,6 +527,10 @@ const getThreadState = (threadId) => {
     chatState.threadStates[threadId] = {
       isStreaming: false,
       streamAbortController: null,
+      runStreamAbortController: null,
+      activeRunId: null,
+      runLastSeq: '0',
+      lastRetryableJobTry: null,
       onGoingConv: createOnGoingConvState(),
       agentState: null // 添加 agentState 字段
     }
@@ -533,8 +543,12 @@ const cleanupThreadState = (threadId) => {
   if (!threadId) return
   const threadState = chatState.threadStates[threadId]
   if (threadState) {
+    clearTypingQueueForThread(threadId)
     if (threadState.streamAbortController) {
       threadState.streamAbortController.abort()
+    }
+    if (threadState.runStreamAbortController) {
+      threadState.runStreamAbortController.abort()
     }
     delete chatState.threadStates[threadId]
   }
@@ -542,20 +556,20 @@ const cleanupThreadState = (threadId) => {
 
 // ==================== STREAM HANDLING LOGIC ====================
 const resetOnGoingConv = (threadId = null) => {
-  console.log(
-    `🔄 [RESET] Resetting on going conversation: ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()}`,
-    threadId
-  )
-
   const targetThreadId = threadId || currentChatId.value
 
   if (targetThreadId) {
     // 清理指定线程的状态
     const threadState = getThreadState(targetThreadId)
     if (threadState) {
+      clearTypingQueueForThread(targetThreadId)
       if (threadState.streamAbortController) {
         threadState.streamAbortController.abort()
         threadState.streamAbortController = null
+      }
+      if (threadState.runStreamAbortController) {
+        threadState.runStreamAbortController.abort()
+        threadState.runStreamAbortController = null
       }
 
       // 直接重置对话状态
@@ -665,10 +679,6 @@ const fetchThreadMessages = async ({ agentId, threadId, delay = 0 }) => {
 
   try {
     const response = await agentApi.getAgentHistory(agentId, threadId)
-    console.log(
-      `🔄 [FETCH] Thread messages: ${new Date().toLocaleTimeString()}.${new Date().getMilliseconds()}`,
-      response
-    )
     threadMessages.value[threadId] = response.history || []
   } catch (error) {
     handleChatError(error, 'load')
@@ -680,30 +690,445 @@ const fetchAgentState = async (agentId, threadId) => {
   if (!agentId || !threadId) return
   try {
     const res = await agentApi.getAgentState(agentId, threadId)
-    // 确保更新 currentChatId 对应的 state，因为 currentAgentState 依赖它
-    // 如果 currentChatId 为 null，使用传入的 threadId
     const targetChatId = currentChatId.value || threadId
-    console.log(
-      '[fetchAgentState] agentId:',
-      agentId,
-      'threadId:',
-      threadId,
-      'targetChatId:',
-      targetChatId,
-      'agent_state:',
-      JSON.stringify(res.agent_state || {})?.slice(0, 200)
-    )
     const ts = getThreadState(targetChatId)
     if (ts) {
       ts.agentState = res.agent_state || null
     } else {
-      // 如果 targetChatId 对应的 state 不存在，创建一个
       const newTs = getThreadState(threadId)
       if (newTs) newTs.agentState = res.agent_state || null
     }
   } catch {
     // 忽略状态拉取失败，不阻塞主流程
   }
+}
+
+const RUN_TERMINAL_STATUSES = new Set(['completed', 'failed', 'cancelled', 'interrupted'])
+
+const getActiveRunStorageKey = (threadId) => `active_run:${threadId}`
+
+const normalizeRunSeq = (value) => {
+  if (value === undefined || value === null) return '0'
+  const text = String(value).trim()
+  return text || '0'
+}
+
+const parseRunSeq = (value) => {
+  const text = normalizeRunSeq(value)
+  if (text.includes('-')) {
+    const [majorRaw, minorRaw] = text.split('-', 2)
+    let major = 0n
+    let minor = 0n
+    try {
+      major = BigInt(majorRaw || '0')
+      minor = BigInt(minorRaw || '0')
+    } catch {
+      return { kind: 'legacy', value: 0 }
+    }
+    return { kind: 'stream', major, minor }
+  }
+  const numberValue = Number.parseInt(text, 10)
+  if (!Number.isNaN(numberValue)) {
+    return { kind: 'legacy', value: numberValue }
+  }
+  return { kind: 'legacy', value: 0 }
+}
+
+const compareRunSeq = (incoming, current) => {
+  const left = parseRunSeq(incoming)
+  const right = parseRunSeq(current)
+
+  if (left.kind === 'stream' && right.kind === 'stream') {
+    if (left.major > right.major) return 1
+    if (left.major < right.major) return -1
+    if (left.minor > right.minor) return 1
+    if (left.minor < right.minor) return -1
+    return 0
+  }
+
+  if (left.kind === 'legacy' && right.kind === 'legacy') {
+    return left.value - right.value
+  }
+
+  if (left.kind === 'stream' && right.kind === 'legacy') return 1
+  return -1
+}
+
+const saveActiveRunSnapshot = (threadId, runId, lastSeq = '0') => {
+  if (!threadId || !runId) return
+  localStorage.setItem(
+    getActiveRunStorageKey(threadId),
+    JSON.stringify({
+      run_id: runId,
+      last_seq: normalizeRunSeq(lastSeq),
+      created_at: Date.now(),
+      client_id: ACTIVE_RUN_CLIENT_ID
+    })
+  )
+}
+
+const loadActiveRunSnapshot = (threadId) => {
+  if (!threadId) return null
+  try {
+    const raw = localStorage.getItem(getActiveRunStorageKey(threadId))
+    return raw ? JSON.parse(raw) : null
+  } catch {
+    return null
+  }
+}
+
+const clearActiveRunSnapshot = (threadId) => {
+  if (!threadId) return
+  localStorage.removeItem(getActiveRunStorageKey(threadId))
+}
+
+const splitChars = (text) => {
+  if (typeof text !== 'string' || !text) return []
+  return Array.from(text)
+}
+
+const calcTypingCps = () => {
+  if (pendingTypingChars <= 0) return MIN_TYPING_CPS
+  const ratio = Math.min(1, pendingTypingChars / TYPING_BACKLOG_HIGH_WATERMARK)
+  return Math.round(MIN_TYPING_CPS + ratio * (MAX_TYPING_CPS - MIN_TYPING_CPS))
+}
+
+const scheduleTypingRender = () => {
+  if (typingAnimationFrameId !== null) return
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    typingAnimationFrameId = window.requestAnimationFrame(drainTypingQueue)
+  } else {
+    typingAnimationFrameId = setTimeout(() => {
+      typingAnimationFrameId = null
+      drainTypingQueue(Date.now())
+    }, 16)
+  }
+}
+
+const stopTypingRenderLoop = () => {
+  if (typingAnimationFrameId === null) return
+  if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(typingAnimationFrameId)
+  } else {
+    clearTimeout(typingAnimationFrameId)
+  }
+  typingAnimationFrameId = null
+  typingLastFrameTs = 0
+}
+
+const enqueueLoadingChunkForTyping = (threadId, chunk) => {
+  if (!threadId || !chunk) return
+  if (chunk.status !== 'loading') {
+    typingChunkQueue.push({ threadId, chunk, isChar: false })
+    scheduleTypingRender()
+    return
+  }
+
+  const msg = chunk.msg || {}
+  const contentChars = splitChars(msg.content)
+  if (contentChars.length === 0) {
+    typingChunkQueue.push({ threadId, chunk, isChar: false })
+    scheduleTypingRender()
+    return
+  }
+
+  for (const char of contentChars) {
+    typingChunkQueue.push({
+      threadId,
+      isChar: true,
+      chunk: {
+        ...chunk,
+        msg: {
+          ...msg,
+          content: char
+        }
+      }
+    })
+  }
+  pendingTypingChars += contentChars.length
+  scheduleTypingRender()
+}
+
+// 将队列按 threadId 分区，对匹配项执行回调，返回移除的字符数
+const partitionTypingQueue = (threadId, onMatch = null) => {
+  const remaining = []
+  let charCount = 0
+  for (const item of typingChunkQueue) {
+    if (item.threadId === threadId) {
+      if (onMatch) onMatch(item)
+      if (item.isChar) charCount += 1
+    } else {
+      remaining.push(item)
+    }
+  }
+  typingChunkQueue.length = 0
+  typingChunkQueue.push(...remaining)
+  pendingTypingChars = Math.max(0, pendingTypingChars - charCount)
+  typingChunkQueue.length === 0 ? stopTypingRenderLoop() : scheduleTypingRender()
+}
+
+const clearTypingQueueForThread = (threadId) => {
+  if (!threadId || typingChunkQueue.length === 0) return
+  partitionTypingQueue(threadId)
+}
+
+const flushTypingQueueForThread = (threadId) => {
+  if (!threadId || typingChunkQueue.length === 0) return
+  partitionTypingQueue(threadId, (item) => handleStreamChunk(item.chunk, threadId))
+}
+
+function drainTypingQueue(frameTs = Date.now()) {
+  typingAnimationFrameId = null
+  if (typingChunkQueue.length === 0) {
+    typingLastFrameTs = 0
+    return
+  }
+
+  if (!typingLastFrameTs) {
+    typingLastFrameTs = frameTs
+  }
+
+  const elapsedSeconds = Math.max(0.001, (frameTs - typingLastFrameTs) / 1000)
+  typingLastFrameTs = frameTs
+  const cps = calcTypingCps()
+  let budget = Math.max(1, Math.floor(elapsedSeconds * cps))
+
+  while (budget > 0 && typingChunkQueue.length > 0) {
+    const item = typingChunkQueue.shift()
+    if (!item) break
+    handleStreamChunk(item.chunk, item.threadId)
+    if (item.isChar) {
+      pendingTypingChars = Math.max(0, pendingTypingChars - 1)
+    }
+    budget -= 1
+  }
+
+  if (typingChunkQueue.length > 0) {
+    scheduleTypingRender()
+  } else {
+    typingLastFrameTs = 0
+  }
+}
+
+const processRunSseResponse = async (response, onEvent) => {
+  if (!response || !response.body) return
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let eventType = 'message'
+  let dataLines = []
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const rawLine of lines) {
+        const line = rawLine.replace(/\r$/, '')
+        if (!line) {
+          if (dataLines.length > 0) {
+            const dataText = dataLines.join('\n')
+            try {
+              const parsed = JSON.parse(dataText)
+              onEvent(eventType, parsed)
+            } catch (e) {
+              console.warn('Failed to parse run SSE data:', e, dataText)
+            }
+          }
+          eventType = 'message'
+          dataLines = []
+          continue
+        }
+        if (line.startsWith('event:')) {
+          eventType = line.slice(6).trim() || 'message'
+        } else if (line.startsWith('data:')) {
+          dataLines.push(line.slice(5).trim())
+        }
+      }
+    }
+    if (dataLines.length > 0) {
+      const dataText = dataLines.join('\n')
+      try {
+        const parsed = JSON.parse(dataText)
+        onEvent(eventType, parsed)
+      } catch (e) {
+        console.warn('Failed to parse trailing run SSE data:', e, dataText)
+      }
+    }
+  } finally {
+    try {
+      reader.releaseLock()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+const stopRunStreamSubscription = (threadId) => {
+  const ts = getThreadState(threadId)
+  if (!ts) return
+  if (ts.runStreamAbortController) {
+    ts.runStreamAbortController.abort()
+    ts.runStreamAbortController = null
+  }
+}
+
+const startRunStream = async (threadId, runId, afterSeq = '0') => {
+  if (!threadId || !runId || !useRunsApi) return
+  const ts = getThreadState(threadId)
+  if (!ts) return
+
+  stopRunStreamSubscription(threadId)
+  const runController = new AbortController()
+  ts.runStreamAbortController = runController
+  ts.activeRunId = runId
+  ts.runLastSeq = normalizeRunSeq(afterSeq)
+  ts.lastRetryableJobTry = null
+  ts.isStreaming = true
+  saveActiveRunSnapshot(threadId, runId, ts.runLastSeq)
+
+  try {
+    const response = await agentApi.streamAgentRunEvents(runId, ts.runLastSeq, {
+      signal: runController.signal
+    })
+    if (!response.ok) {
+      throw new Error(`SSE response not ok: ${response.status}`)
+    }
+
+    await processRunSseResponse(response, (event, data) => {
+      if (!data || ts.activeRunId !== runId) return
+
+      if (data.seq !== undefined && data.seq !== null) {
+        const incomingSeq = normalizeRunSeq(data.seq)
+        if (compareRunSeq(incomingSeq, ts.runLastSeq) <= 0) return
+        ts.runLastSeq = incomingSeq
+        saveActiveRunSnapshot(threadId, runId, incomingSeq)
+      }
+
+      if (event === 'heartbeat') return
+
+      const payload = data.payload || {}
+      const isRetryableError = event === 'error' && payload?.chunk?.retryable === true
+      if (isRetryableError) {
+        const parsedJobTry = Number.parseInt(payload?.chunk?.job_try, 10)
+        const retryJobTry = Number.isNaN(parsedJobTry) ? null : parsedJobTry
+        if (retryJobTry !== null && ts.lastRetryableJobTry === retryJobTry) {
+          return
+        }
+        ts.lastRetryableJobTry = retryJobTry
+        console.warn('Run encountered retryable error, waiting for worker retry', {
+          threadId,
+          runId,
+          retryJobTry,
+          errorType: payload?.chunk?.error_type
+        })
+        return
+      }
+
+      if (Array.isArray(payload.items)) {
+        payload.items.forEach((chunk) => {
+          enqueueLoadingChunkForTyping(threadId, chunk)
+        })
+      } else if (payload.chunk) {
+        enqueueLoadingChunkForTyping(threadId, payload.chunk)
+      }
+
+      if (event === 'close') {
+        flushTypingQueueForThread(threadId)
+        ts.isStreaming = false
+        if (RUN_TERMINAL_STATUSES.has(data.status)) {
+          ts.activeRunId = null
+          ts.lastRetryableJobTry = null
+          clearActiveRunSnapshot(threadId)
+          fetchThreadMessages({ agentId: currentAgentId.value, threadId, delay: 200 }).finally(() => {
+            fetchAgentState(currentAgentId.value, threadId)
+          })
+        } else if (ts.activeRunId === runId) {
+          window.setTimeout(() => {
+            if (ts.activeRunId === runId && !ts.runStreamAbortController) {
+              void startRunStream(threadId, runId, ts.runLastSeq)
+            }
+          }, 300)
+        }
+      }
+
+      if (event === 'finished' || event === 'error' || event === 'interrupted') {
+        flushTypingQueueForThread(threadId)
+        ts.isStreaming = false
+        ts.activeRunId = null
+        ts.lastRetryableJobTry = null
+        clearActiveRunSnapshot(threadId)
+        fetchThreadMessages({ agentId: currentAgentId.value, threadId, delay: 300 }).finally(() => {
+          resetOnGoingConv(threadId)
+          fetchAgentState(currentAgentId.value, threadId)
+          scrollController.scrollToBottom()
+        })
+      }
+    })
+  } catch (error) {
+    if (error?.name !== 'AbortError') {
+      console.error('Run SSE stream error:', error)
+      handleChatError(error, 'stream')
+      if (ts.activeRunId === runId) {
+        window.setTimeout(() => {
+          if (ts.activeRunId === runId && !ts.runStreamAbortController) {
+            void startRunStream(threadId, runId, ts.runLastSeq)
+          }
+        }, 500)
+      }
+    }
+  } finally {
+    if (ts.runStreamAbortController === runController) {
+      ts.runStreamAbortController = null
+    }
+    if (!ts.activeRunId) {
+      ts.isStreaming = false
+    }
+  }
+}
+
+const resumeActiveRunForThread = async (threadId) => {
+  if (!useRunsApi || !threadId) return
+  const ts = getThreadState(threadId)
+  if (!ts || ts.runStreamAbortController) return
+
+  const snapshot = loadActiveRunSnapshot(threadId)
+  if (snapshot?.run_id) {
+    if (Date.now() - Number(snapshot.created_at || 0) > ACTIVE_RUN_STORAGE_TTL_MS) {
+      clearActiveRunSnapshot(threadId)
+    } else {
+      try {
+        const runRes = await agentApi.getAgentRun(snapshot.run_id)
+        const run = runRes?.run
+        if (run && !RUN_TERMINAL_STATUSES.has(run.status)) {
+          await startRunStream(threadId, run.id, snapshot.last_seq || '0')
+          return
+        }
+      } catch {
+        // ignore
+      }
+      clearActiveRunSnapshot(threadId)
+    }
+  }
+
+  try {
+    const active = await agentApi.getThreadActiveRun(threadId)
+    const run = active?.run
+    if (run && !RUN_TERMINAL_STATUSES.has(run.status)) {
+      await startRunStream(threadId, run.id, 0)
+      return
+    }
+  } catch (e) {
+    console.warn('Failed to load active run for thread:', threadId, e)
+  }
+
+  ts.activeRunId = null
+  ts.runLastSeq = '0'
+  ts.isStreaming = false
+  clearActiveRunSnapshot(threadId)
 }
 
 const fetchMentionResources = async () => {
@@ -740,7 +1165,7 @@ const { approvalState, handleApproval, processApprovalInStream } = useApproval({
   fetchThreadMessages
 })
 
-const { handleAgentResponse } = useAgentStreamHandler({
+const { handleAgentResponse, handleStreamChunk } = useAgentStreamHandler({
   getThreadState,
   processApprovalInStream,
   currentAgentId,
@@ -866,6 +1291,8 @@ const selectChat = async (chatId) => {
       previousThreadState.isStreaming = false
       previousThreadState.streamAbortController = null
     }
+    // run 模式下仅断开 SSE 订阅，不取消后台运行任务
+    stopRunStreamSubscription(previousThreadId)
   }
 
   chatState.currentThreadId = chatId
@@ -881,6 +1308,7 @@ const selectChat = async (chatId) => {
   await nextTick()
   scrollController.scrollToBottomStaticForce()
   await fetchAgentState(currentAgentId.value, chatId)
+  await resumeActiveRunForThread(chatId)
 }
 
 const deleteChat = async (chatId) => {
@@ -927,7 +1355,6 @@ const renameChat = async (data) => {
 }
 
 const handleSendMessage = async ({ image } = {}) => {
-  console.log('AgentChatComponent: handleSendMessage payload image:', image)
   const text = userInput.value.trim()
   if ((!text && !image) || !currentAgent.value || isProcessing.value) return
 
@@ -948,18 +1375,42 @@ const handleSendMessage = async ({ image } = {}) => {
   const threadState = getThreadState(threadId)
   if (!threadState) return
 
+  if (useRunsApi) {
+    if ((threadMessages.value[threadId] || []).length === 0) {
+      const autoTitle = text.replace(/\s+/g, ' ').trim().slice(0, 255)
+      if (autoTitle) {
+        void updateThread(threadId, autoTitle).catch(() => {})
+      }
+    }
+
+    resetOnGoingConv(threadId)
+    threadState.isStreaming = true
+    try {
+      const runResp = await agentApi.createAgentRun(currentAgentId.value, {
+        query: text,
+        config: {
+          thread_id: threadId,
+          ...(selectedAgentConfigId.value ? { agent_config_id: selectedAgentConfigId.value } : {})
+        },
+        image_content: image?.imageContent
+      })
+      const runId = runResp?.run_id
+      if (!runId) {
+        throw new Error('创建 run 失败：缺少 run_id')
+      }
+      await startRunStream(threadId, runId, 0)
+    } catch (error) {
+      threadState.isStreaming = false
+      handleChatError(error, 'send')
+    }
+    return
+  }
+
   threadState.isStreaming = true
   resetOnGoingConv(threadId)
   threadState.streamAbortController = new AbortController()
 
   try {
-    console.log('[AgentStateDebug][before_send]', {
-      threadId,
-      currentAgentId: currentAgentId.value,
-      capabilities: currentCapabilities.value,
-      supportsTodo: supportsTodo.value,
-      supportsFiles: supportsFiles.value
-    })
     const response = await sendMessage({
       agentId: currentAgentId.value,
       threadId: threadId,
@@ -978,22 +1429,13 @@ const handleSendMessage = async ({ image } = {}) => {
     }
     threadState.isStreaming = false
   } finally {
-    console.log('[AgentStateDebug][send_finally_start]', {
-      threadId,
-      currentAgentId: currentAgentId.value,
-      supportsTodo: supportsTodo.value,
-      supportsFiles: supportsFiles.value
-    })
     threadState.streamAbortController = null
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
     fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
       () => {
-        console.log('[AgentStateDebug][history_refreshed_after_send]', {
-          threadId,
-          currentAgentId: currentAgentId.value
-        })
         // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
+        fetchAgentState(currentAgentId.value, threadId)
         scrollController.scrollToBottom()
       }
     )
@@ -1004,26 +1446,37 @@ const handleSendMessage = async ({ image } = {}) => {
 const handleSendOrStop = async (payload) => {
   const threadId = currentChatId.value
   const threadState = getThreadState(threadId)
-  if (isProcessing.value && threadState && threadState.streamAbortController) {
-    // 中断生成
-    threadState.streamAbortController.abort()
-
-    // 中断后刷新消息历史，确保显示最新的状态
-    try {
-      await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 })
-      message.info('已中断对话生成')
-    } catch (error) {
-      console.error('刷新消息历史失败:', error)
-      message.info('已中断对话生成')
+  if (isProcessing.value && threadState) {
+    if (useRunsApi && threadState.activeRunId) {
+      try {
+        await agentApi.cancelAgentRun(threadState.activeRunId)
+        message.info('已发送取消请求')
+      } catch (error) {
+        handleChatError(error, 'stop')
+      }
+      return
     }
-    return
+
+    if (threadState.streamAbortController) {
+      // 中断生成
+      threadState.streamAbortController.abort()
+
+      // 中断后刷新消息历史，确保显示最新的状态
+      try {
+        await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 })
+        message.info('已中断对话生成')
+      } catch (error) {
+        console.error('刷新消息历史失败:', error)
+        message.info('已中断对话生成')
+      }
+      return
+    }
   }
   await handleSendMessage(payload)
 }
 
 // ==================== 人工审批处理 ====================
 const handleApprovalWithStream = async (approved) => {
-  console.log('🔄 [STREAM] Starting resume stream processing')
 
   const threadId = approvalState.threadId
   if (!threadId) {
@@ -1040,14 +1493,6 @@ const handleApprovalWithStream = async (approved) => {
   }
 
   try {
-    console.log('[AgentStateDebug][before_resume_send]', {
-      threadId,
-      currentAgentId: currentAgentId.value,
-      approved,
-      capabilities: currentCapabilities.value,
-      supportsTodo: supportsTodo.value,
-      supportsFiles: supportsFiles.value
-    })
     // 使用审批 composable 处理审批
     const response = await handleApproval(
       approved,
@@ -1057,28 +1502,13 @@ const handleApprovalWithStream = async (approved) => {
 
     if (!response) return // 如果 handleApproval 抛出错误，这里不会执行
 
-    console.log('🔄 [STREAM] Processing resume streaming response')
-
     // 处理流式响应
-    await handleAgentResponse(response, threadId, (chunk) => {
-      console.log('🔄 [STREAM] Processing chunk:', chunk)
-    })
-
-    console.log('🔄 [STREAM] Resume stream processing completed')
+    await handleAgentResponse(response, threadId)
   } catch (error) {
-    console.error('❌ [STREAM] Resume stream failed:', error)
     if (error.name !== 'AbortError') {
       console.error('Resume approval error:', error)
-      // handleChatError 已在 useApproval 中调用
     }
   } finally {
-    console.log('🔄 [STREAM] Cleaning up streaming state')
-    console.log('[AgentStateDebug][resume_finally_start]', {
-      threadId,
-      currentAgentId: currentAgentId.value,
-      supportsTodo: supportsTodo.value,
-      supportsFiles: supportsFiles.value
-    })
     if (threadState) {
       threadState.isStreaming = false
       threadState.streamAbortController = null
@@ -1087,11 +1517,6 @@ const handleApprovalWithStream = async (approved) => {
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
     fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
       () => {
-        console.log('[AgentStateDebug][history_refreshed_after_resume]', {
-          threadId,
-          currentAgentId: currentAgentId.value
-        })
-        // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
         scrollController.scrollToBottom()
       }
@@ -1147,17 +1572,7 @@ const openAgentModal = () => emit('open-agent-modal')
 
 const handleAgentStateRefresh = async (threadId = null) => {
   if (!currentAgentId.value) return
-  // 优先使用传入的 threadId，否则使用当前的 currentChatId
-  let chatId = threadId || currentChatId.value
-  console.log('[AgentStateDebug][manual_refresh_start]', {
-    inputThreadId: threadId,
-    currentChatId: currentChatId.value,
-    finalChatId: chatId,
-    currentAgentId: currentAgentId.value,
-    capabilities: currentCapabilities.value,
-    supportsTodo: supportsTodo.value,
-    supportsFiles: supportsFiles.value
-  })
+  const chatId = threadId || currentChatId.value
   if (!chatId) return
   await fetchAgentState(currentAgentId.value, chatId)
 }
@@ -1284,19 +1699,6 @@ onMounted(async () => {
   await initAll()
   scrollController.enableAutoScroll()
 })
-
-watch(
-  [currentAgentId, currentCapabilities, supportsTodo, supportsFiles],
-  ([agentId, capabilities, todo, files]) => {
-    console.log('[AgentStateDebug][capabilities_changed]', {
-      currentAgentId: agentId,
-      capabilities,
-      supportsTodo: todo,
-      supportsFiles: files
-    })
-  },
-  { immediate: true }
-)
 
 watch(
   currentAgentId,

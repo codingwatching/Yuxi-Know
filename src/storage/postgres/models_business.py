@@ -544,3 +544,46 @@ class TaskRecord(Base):
         data.pop("payload", None)
         data.pop("result", None)
         return data
+
+
+class AgentRun(Base):
+    """AgentRun table - 运行任务表"""
+
+    __tablename__ = "agent_runs"
+
+    id = Column(String(64), primary_key=True, comment="Run ID (UUID)")
+    thread_id = Column(String(64), index=True, nullable=False, comment="Thread ID")
+    agent_id = Column(String(64), index=True, nullable=False, comment="Agent ID")
+    user_id = Column(String(64), index=True, nullable=False, comment="User ID")
+    status = Column(
+        String(32),
+        index=True,
+        nullable=False,
+        default="pending",
+        comment="Run status: pending/running/completed/failed/cancel_requested/cancelled/interrupted",
+    )
+    request_id = Column(String(64), unique=True, index=True, nullable=False, comment="Idempotency request ID")
+    input_payload = Column(JSON, nullable=False, default=dict, comment="Original input payload")
+    error_type = Column(String(64), nullable=True, comment="Error type")
+    error_message = Column(Text, nullable=True, comment="Error message")
+    started_at = Column(DateTime, nullable=True, comment="Start time")
+    finished_at = Column(DateTime, nullable=True, comment="Finish time")
+    created_at = Column(DateTime, default=utc_now_naive, comment="Creation time")
+    updated_at = Column(DateTime, default=utc_now_naive, onupdate=utc_now_naive, comment="Update time")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "thread_id": self.thread_id,
+            "agent_id": self.agent_id,
+            "user_id": self.user_id,
+            "status": self.status,
+            "request_id": self.request_id,
+            "input_payload": self.input_payload or {},
+            "error_type": self.error_type,
+            "error_message": self.error_message,
+            "started_at": format_utc_datetime(self.started_at),
+            "finished_at": format_utc_datetime(self.finished_at),
+            "created_at": format_utc_datetime(self.created_at),
+            "updated_at": format_utc_datetime(self.updated_at),
+        }

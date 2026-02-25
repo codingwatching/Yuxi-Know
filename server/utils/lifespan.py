@@ -5,6 +5,7 @@ from fastapi import FastAPI
 from src.services.task_service import tasker
 from src.services.mcp_service import init_mcp_servers
 from src.services.skill_service import init_skills_cache
+from src.services.run_queue_service import close_queue_clients, get_redis_client
 from src.storage.postgres.manager import pg_manager
 from src.knowledge import knowledge_base
 from src.utils import logger
@@ -40,7 +41,15 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error(f"Failed to initialize knowledge base manager: {e}")
 
+    # 预热 Redis（run 队列）
+    try:
+        redis = await get_redis_client()
+        await redis.ping()
+    except Exception as e:
+        logger.warning(f"Run queue redis unavailable on startup: {e}")
+
     await tasker.start()
     yield
     await tasker.shutdown()
+    await close_queue_clients()
     await pg_manager.close()
