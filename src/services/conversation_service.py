@@ -2,6 +2,7 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import HTTPException, UploadFile
+from langgraph.types import Command
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from src.agents import agent_manager
@@ -78,6 +79,8 @@ async def _sync_thread_attachment_state(
 
         graph = await agent.get_graph()
         config = {"configurable": {"thread_id": thread_id, "user_id": str(user_id)}}
+
+        # 先获取现有 state，保留非附件文件
         state = await graph.aget_state(config)
         state_values = getattr(state, "values", {}) if state else {}
         existing_files = state_values.get("files", {}) if isinstance(state_values, dict) else {}
@@ -97,6 +100,7 @@ async def _sync_thread_attachment_state(
         for removed_path in prev_attachment_paths - next_attachment_paths:
             file_updates[removed_path] = None
 
+        # 使用 Command 确保 reducer 被正确应用
         await graph.aupdate_state(
             config=config,
             values={
@@ -265,7 +269,7 @@ async def upload_thread_attachment_view(
         "uploaded_at": utc_isoformat(),
         "truncated": conversion.truncated,
         "file_path": file_path,  # 用于 StateBackend，前端不返回此字段
-        "minio_url": minio_url,
+        "minio_url": minio_url,  # 暂未使用
     }
     await conv_repo.add_attachment(conversation.id, attachment_record)
     all_attachments = await conv_repo.get_attachments(conversation.id)

@@ -1431,7 +1431,7 @@ const handleSendMessage = async ({ image } = {}) => {
   } finally {
     threadState.streamAbortController = null
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
-    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(
       () => {
         // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
@@ -1515,7 +1515,7 @@ const handleApprovalWithStream = async (approved) => {
     }
 
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
-    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(
       () => {
         resetOnGoingConv(threadId)
         scrollController.scrollToBottom()
@@ -1815,7 +1815,7 @@ watch(
   background: var(--gray-0);
   border-radius: 12px;
   box-shadow: 0 4px 20px var(--shadow-1);
-  border: 1px solid var(--gray-200);
+  border: 1px solid var(--gray-150);
   min-width: 0;
   will-change: flex-basis;
 }
