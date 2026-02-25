@@ -962,7 +962,7 @@ const handleSendMessage = async ({ image } = {}) => {
   } finally {
     threadState.streamAbortController = null
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
-    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(
       () => {
         // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
@@ -982,7 +982,7 @@ const handleSendOrStop = async (payload) => {
 
     // 中断后刷新消息历史，确保显示最新的状态
     try {
-      await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 })
+      await fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId })
       message.info('已中断对话生成')
     } catch (error) {
       console.error('刷新消息历史失败:', error)
@@ -1043,7 +1043,7 @@ const handleApprovalWithStream = async (approved) => {
     }
 
     // 异步加载历史记录，保持当前消息显示直到历史记录加载完成
-    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId, delay: 500 }).finally(
+    fetchThreadMessages({ agentId: currentAgentId.value, threadId: threadId }).finally(
       () => {
         // 历史记录加载完成后，安全地清空当前进行中的对话
         resetOnGoingConv(threadId)
