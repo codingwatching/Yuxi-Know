@@ -5,6 +5,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from src import config
 from src.knowledge import knowledge_base
 from src.models import select_model
 from src.repositories.evaluation_repository import EvaluationRepository
@@ -345,9 +346,9 @@ class EvaluationService:
 
         await context.set_progress(15, "向量化")
 
+        db_meta = kb_instance.databases_meta.get(db_id, {})
+        embed_info = db_meta.get("embed_info", {})
         if not embedding_model_id:
-            db_meta = kb_instance.databases_meta.get(db_id, {})
-            embed_info = db_meta.get("embed_info", {})
             embedding_model_id = embed_info.get("name") or embed_info.get("model") or ""
         if not embedding_model_id:
             raise ValueError("Embedding model not specified")
@@ -355,11 +356,14 @@ class EvaluationService:
         from src.models import select_embedding_model, select_model
 
         embed_model = select_embedding_model(embedding_model_id)
+        batch_size = int(getattr(embed_model, "batch_size", 40) or 40)
+        if embedding_model_id in config.embed_model_names:
+            batch_size = config.embed_model_names[embedding_model_id].batch_size
         # TODO: Performance Optimization
         # Currently, we re-calculate embeddings for ALL chunks in the KB for every benchmark generation.
         # This is inefficient for large KBs (O(N) embedding calls).
         # Optimization: Reuse existing embeddings from Vector DB if embedding_model_id matches the KB's embedding model.
-        embeddings = await embed_model.abatch_encode(contents, batch_size=40)
+        embeddings = await embed_model.abatch_encode(contents, batch_size=batch_size)
         norms = [math.sqrt(sum(x * x for x in vec)) or 1.0 for vec in embeddings]
 
         def cosine(a, b, na, nb):

@@ -11,7 +11,17 @@ from src.utils import get_docker_safe_url, hashstr, logger
 
 
 class BaseEmbeddingModel(ABC):
-    def __init__(self, model=None, name=None, dimension=None, url=None, base_url=None, api_key=None, model_id=None):
+    def __init__(
+        self,
+        model=None,
+        name=None,
+        dimension=None,
+        url=None,
+        base_url=None,
+        api_key=None,
+        model_id=None,
+        batch_size=40,
+    ):
         """
         Args:
             model: 模型名称，冗余设计，同name
@@ -20,12 +30,14 @@ class BaseEmbeddingModel(ABC):
             url: 请求URL，冗余设计，同base_url
             base_url: 基础URL，请求URL，冗余设计，同url
             api_key: 请求API密钥
+            batch_size: 模型推荐的批量向量化大小
         """
         base_url = base_url or url
         self.model = model or name
         self.dimension = dimension
         self.base_url = get_docker_safe_url(base_url)
         self.api_key = os.getenv(api_key, api_key)
+        self.batch_size = int(batch_size or 40)
         self.embed_state = {}
 
     @abstractmethod
@@ -46,8 +58,9 @@ class BaseEmbeddingModel(ABC):
         """等同于aencode"""
         return await self.aencode(queries)
 
-    def batch_encode(self, messages: list[str], batch_size: int = 40) -> list[list[float]]:
+    def batch_encode(self, messages: list[str], batch_size: int | None = None) -> list[list[float]]:
         # logger.info(f"Batch encoding {len(messages)} messages")
+        batch_size = batch_size or self.batch_size
         data = []
         task_id = None
         if len(messages) > batch_size:
@@ -67,7 +80,8 @@ class BaseEmbeddingModel(ABC):
 
         return data
 
-    async def abatch_encode(self, messages: list[str], batch_size: int = 40) -> list[list[float]]:
+    async def abatch_encode(self, messages: list[str], batch_size: int | None = None) -> list[list[float]]:
+        batch_size = batch_size or self.batch_size
         data = []
         task_id = None
         if len(messages) > batch_size:
