@@ -28,6 +28,14 @@ WORKDIR /app
 # 安装 pnpm
 RUN npm install -g pnpm@latest
 
+# 构建阶段注入前端环境变量（Vite 在 build 时读取）
+ARG VITE_API_URL=http://api:5050
+ARG VITE_USE_RUNS_API=false
+ARG VITE_ENABLE_KNOWLEDGE_GRAPH=true
+ENV VITE_API_URL=${VITE_API_URL}
+ENV VITE_USE_RUNS_API=${VITE_USE_RUNS_API}
+ENV VITE_ENABLE_KNOWLEDGE_GRAPH=${VITE_ENABLE_KNOWLEDGE_GRAPH}
+
 # 复制依赖文件
 COPY ./web/package*.json ./
 COPY ./web/pnpm-lock.yaml* ./

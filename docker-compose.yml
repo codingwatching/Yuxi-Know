@@ -141,6 +141,7 @@ services:
       - NODE_ENV=development
       - VITE_API_URL=http://api:5050
       - VITE_USE_RUNS_API=${VITE_USE_RUNS_API:-false}
+      - VITE_ENABLE_KNOWLEDGE_GRAPH=${YUXI_ENABLE_KNOWLEDGE_GRAPH:-true}
     command: pnpm run server
     restart: unless-stopped
 

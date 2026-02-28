@@ -37,6 +37,11 @@ const showDebugModal = ref(false)
 // Add state for settings modal
 const showSettingsModal = ref(false)
 
+const graphMenuVisible = computed(() => {
+  const value = String(import.meta.env.VITE_ENABLE_KNOWLEDGE_GRAPH ?? 'true').toLowerCase()
+  return value === 'true'
+})
+
 // Provide settings modal methods to child components
 const openSettingsModal = () => {
   showSettingsModal.value = true
@@ -100,7 +105,8 @@ const mainList = computed(() => {
       name: '图谱',
       path: '/graph',
       icon: Waypoints,
-      activeIcon: Waypoints
+      activeIcon: Waypoints,
+      hidden: !graphMenuVisible.value
     },
     {
       name: '知识库',
