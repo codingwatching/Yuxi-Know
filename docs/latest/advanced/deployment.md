@@ -30,11 +30,6 @@ cp .env.template .env.prod
 - `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY`: 修改默认密钥
 - `SILICONFLOW_API_KEY` 等模型密钥
 
-如果希望以最小资源模式运行（禁用 LightRAG 和知识图谱），可额外设置：
-
-- `YUXI_ENABLE_LIGHTRAG=false`
-- `YUXI_ENABLE_KNOWLEDGE_GRAPH=false`
-
 ### 2. 启动服务
 
 使用 `docker-compose.prod.yml` 文件启动生产环境：
@@ -45,13 +40,6 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 # 启动所有服务 (包含 GPU OCR 服务)
 docker compose -f docker-compose.prod.yml --profile all up -d --build
-```
-
-最小资源模式（不启动 Neo4j 图数据库）可使用：
-
-```bash
-docker compose -f docker-compose.prod.yml up -d --build \
-  api worker web postgres redis etcd minio milvus
 ```
 
 ### 3. 验证部署

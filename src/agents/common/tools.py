@@ -342,10 +342,12 @@ def gen_tool_info(tools) -> list[dict[str, Any]]:
 
 def get_buildin_tools() -> list:
     """注册静态工具"""
-    static_tools = [get_approved_user_goal, calculator, text_to_img_demo]
-
-    if bool(getattr(graph_base, "feature_enabled", True)):
-        static_tools.insert(0, query_knowledge_graph)
+    static_tools = [
+        query_knowledge_graph,
+        get_approved_user_goal,
+        calculator,
+        text_to_img_demo,
+    ]
 
     # subagents 工具
     from .subagents import calc_agent_tool

@@ -13,14 +13,6 @@ from src.utils.logging_config import logger
 graph = APIRouter(prefix="/graph", tags=["graph"])
 
 
-def _is_graph_feature_enabled() -> bool:
-    return bool(getattr(graph_base, "feature_enabled", True))
-
-
-def _graph_disabled_detail() -> str:
-    return str(getattr(graph_base, "reason", "知识图谱功能已禁用"))
-
-
 # =============================================================================
 # === 统一图谱接口 (Unified Graph API) ===
 # =============================================================================
@@ -36,9 +28,6 @@ async def _get_graph_adapter(db_id: str) -> GraphAdapter:
     Returns:
         GraphAdapter: 对应的图谱适配器实例
     """
-    if not _is_graph_feature_enabled():
-        raise HTTPException(status_code=503, detail=_graph_disabled_detail())
-
     # 检查图数据库服务状态 (仅对 Upload 类型需要)
     if not graph_base.is_running():
         # 先尝试检测图谱类型，如果是不需要 graph_base 的类型则允许
@@ -69,9 +58,6 @@ async def get_graphs(current_user: User = Depends(get_admin_user)):
         包含所有图谱信息的列表 (包括 Neo4j 和 LightRAG)，以及每个类型的 capability 信息
     """
     try:
-        if not _is_graph_feature_enabled():
-            return {"success": True, "data": []}
-
         graphs = []
 
         # 1. 获取默认 Neo4j 图谱信息 (Upload 类型)
@@ -249,9 +235,6 @@ async def get_neo4j_node(
 async def get_neo4j_info(current_user: User = Depends(get_admin_user)):
     """获取Neo4j图数据库信息"""
     try:
-        if not _is_graph_feature_enabled():
-            raise HTTPException(status_code=503, detail=_graph_disabled_detail())
-
         graph_info = graph_base.get_graph_info()
         if graph_info is None:
             raise HTTPException(status_code=400, detail="图数据库获取出错")
@@ -265,9 +248,6 @@ async def get_neo4j_info(current_user: User = Depends(get_admin_user)):
 async def index_neo4j_entities(data: dict = Body(default={}), current_user: User = Depends(get_admin_user)):
     """为Neo4j图谱节点添加嵌入向量索引"""
     try:
-        if not _is_graph_feature_enabled():
-            raise HTTPException(status_code=503, detail=_graph_disabled_detail())
-
         if not graph_base.is_running():
             raise HTTPException(status_code=400, detail="图数据库未启动")
 
@@ -295,9 +275,6 @@ async def add_neo4j_entities(
 ):
     """通过JSONL文件添加图谱实体到Neo4j（只接受 MinIO URL）"""
     try:
-        if not _is_graph_feature_enabled():
-            raise HTTPException(status_code=503, detail=_graph_disabled_detail())
-
         # 服务层会验证 URL 并从 MinIO 下载文件
         await graph_base.jsonl_file_add_entity(file_path, kgdb_name, embed_model_name, batch_size)
         return {"success": True, "message": "实体添加成功", "status": "success"}

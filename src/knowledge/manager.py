@@ -55,9 +55,6 @@ class KnowledgeBaseManager:
             kb_types_in_use = set()
             for row in rows:
                 kb_type = row.kb_type or "lightrag"
-                if not KnowledgeBaseFactory.is_type_supported(kb_type):
-                    logger.warning(f"[InitializeKB] 跳过未启用的知识库类型: {kb_type}")
-                    continue
                 kb_types_in_use.add(kb_type)
 
             logger.info(f"[InitializeKB] 发现 {len(kb_types_in_use)} 种知识库类型: {kb_types_in_use}")
@@ -182,9 +179,6 @@ class KnowledgeBaseManager:
         metadata_reloaded_types: set[str] = set()
         for row in rows:
             kb_type = row.kb_type or "lightrag"
-            if not KnowledgeBaseFactory.is_type_supported(kb_type):
-                logger.warning(f"Skip database due to unsupported kb_type: db_id={row.db_id}, kb_type={kb_type}")
-                continue
             kb_instance = self._get_or_create_kb_instance(kb_type)
             db_info = kb_instance.get_database_info(row.db_id)
             if not db_info and kb_type not in metadata_reloaded_types:
