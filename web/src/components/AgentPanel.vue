@@ -19,11 +19,11 @@
     </div>
 
     <div class="tabs">
-      <button class="tab" :class="{ active: activeTab === 'todos' }" @click="activeTab = 'todos'">
-        任务 ({{ completedCount }}/{{ todos.length }})
-      </button>
       <button class="tab" :class="{ active: activeTab === 'files' }" @click="activeTab = 'files'">
         文件 ({{ fileCount }})
+      </button>
+      <button class="tab" :class="{ active: activeTab === 'todos' }" @click="activeTab = 'todos'">
+        任务 ({{ completedCount }}/{{ todos.length }})
       </button>
     </div>
     <div class="tab-content">
@@ -181,7 +181,7 @@ const props = defineProps({
 
 const emit = defineEmits(['refresh', 'close', 'resize', 'resizing'])
 
-const activeTab = ref('todos')
+const activeTab = ref('files')
 const modalVisible = ref(false)
 const currentFile = ref(null)
 const currentFilePath = ref('')
@@ -566,7 +566,7 @@ const stopResize = () => {
   align-items: center;
   justify-content: space-between;
   padding: 4px 16px;
-  height: 40px;
+  height: 48px;
   background: var(--gray-25);
   flex-shrink: 0;
 }

@@ -1,171 +1,203 @@
 <template>
-  <div class="skills-manager">
-    <div class="header-section">
-      <div class="header-content">
-        <h3 class="title">Skills 管理</h3>
-        <p class="description">导入、编辑、导出和删除技能包。技能内容保存在文件系统，元数据保存在数据库。</p>
-      </div>
-      <div class="header-actions">
-        <a-upload
-          accept=".zip"
-          :show-upload-list="false"
-          :custom-request="handleImportUpload"
-          :disabled="loading || importing"
-        >
-          <a-button type="primary" :loading="importing">导入 ZIP</a-button>
-        </a-upload>
-        <a-button @click="fetchSkills" :disabled="loading">刷新</a-button>
-      </div>
+  <div class="skills-manager-container">
+    <HeaderComponent title="Skills 管理" description="技能包管理系统。支持文件系统编辑与数据库元数据同步。" :loading="loading" class="main-header">
+      <template #actions>
+        <a-space :size="12">
+          <a-upload
+            accept=".zip"
+            :show-upload-list="false"
+            :custom-request="handleImportUpload"
+            :disabled="loading || importing"
+          >
+            <a-button :loading="importing" class="lucide-icon-btn">
+              <Upload :size="14" />
+              <span>导入 ZIP</span>
+            </a-button>
+          </a-upload>
+          <a-button type="primary" @click="fetchSkills" :disabled="loading" class="lucide-icon-btn">
+            <RotateCw :size="14" />
+            <span>刷新</span>
+          </a-button>
+        </a-space>
+      </template>
+    </HeaderComponent>
+
+    <div class="content-body">
+        <div class="layout-wrapper">
+          <!-- 左侧：技能列表 -->
+          <div class="sidebar-list">
+            <div class="search-box">
+              <a-input v-model:value="searchQuery" placeholder="搜索技能..." allow-clear class="search-input">
+                <template #prefix><Search :size="14" class="text-muted" /></template>
+              </a-input>
+            </div>
+
+            <div class="list-container">
+              <div v-if="filteredSkills.length === 0" class="empty-text">
+                <a-empty :image="false" description="无匹配技能" />
+              </div>
+              <div
+                v-for="skill in filteredSkills"
+                :key="skill.slug"
+                class="list-item"
+                :class="{ active: currentSkill?.slug === skill.slug }"
+                @click="selectSkill(skill)"
+              >
+                <div class="item-header">
+                  <Box :size="16" class="item-icon" />
+                  <span class="item-name">{{ skill.name }}</span>
+                </div>
+                <div class="item-details">
+                  <span class="item-slug">{{ skill.slug }}</span>
+                  <div class="item-badges">
+                    <span v-if="skill.tool_dependencies?.length" class="dot-badge blue" title="工具依赖"></span>
+                    <span v-if="skill.mcp_dependencies?.length" class="dot-badge green" title="MCP依赖"></span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 右侧：详情面板 -->
+          <div class="main-panel">
+            <div v-if="!currentSkill" class="unselected-state">
+              <div class="hint-box">
+                <FileCode :size="40" class="text-muted" />
+                <p>请在左侧选择技能包进行编辑</p>
+              </div>
+            </div>
+
+            <template v-else>
+              <div class="panel-top-bar">
+                <div class="skill-summary">
+                  <h2>{{ currentSkill.name }}</h2>
+                  <!-- <code>{{ currentSkill.slug }}</code> -->
+                </div>
+                <div class="panel-actions">
+                  <a-space :size="8">
+                    <a-button size="small" @click="handleExport" class="lucide-icon-btn">
+                      <Download :size="14" />
+                      <span>导出</span>
+                    </a-button>
+                    <a-button size="small" danger ghost @click="confirmDeleteSkill" class="lucide-icon-btn">
+                      <Trash2 :size="14" />
+                      <span>删除</span>
+                    </a-button>
+                  </a-space>
+                </div>
+              </div>
+
+              <div class="tabs-area">
+                <a-tabs v-model:activeKey="activeTab" class="minimal-tabs">
+                  <a-tab-pane key="editor">
+                    <template #tab>
+                      <span class="tab-title"><FileText :size="14" />代码管理</span>
+                    </template>
+                    <div class="workspace">
+                      <div class="tree-container">
+                        <div class="tree-header">
+                          <span class="label">项目结构</span>
+                          <div class="tree-actions">
+                            <a-tooltip title="新建文件"><button @click="openCreateModal(false)"><FilePlus :size="14" /></button></a-tooltip>
+                            <a-tooltip title="新建目录"><button @click="openCreateModal(true)"><FolderPlus :size="14" /></button></a-tooltip>
+                            <a-tooltip title="刷新"><button @click="reloadTree"><RotateCw :size="14" /></button></a-tooltip>
+                          </div>
+                        </div>
+                        <div class="tree-content">
+                          <a-tree
+                            :tree-data="treeData"
+                            :selected-keys="selectedTreeKeys"
+                            default-expand-all
+                            @select="handleTreeSelect"
+                            block-node
+                          />
+                        </div>
+                      </div>
+
+                      <div class="editor-container">
+                        <div class="editor-header">
+                          <div class="current-path">
+                            <File :size="14" />
+                            <span>{{ selectedPath || '未选择文件' }}</span>
+                            <span v-if="canSave" class="save-hint">●</span>
+                          </div>
+                          <a-button
+                            type="primary"
+                            size="small"
+                            @click="saveCurrentFile"
+                            :disabled="!canSave"
+                            :loading="savingFile"
+                            class="lucide-icon-btn"
+                          >
+                            <Save :size="14" />
+                            <span>保存</span>
+                          </a-button>
+                        </div>
+                        <div class="editor-main">
+                          <a-empty v-if="!selectedPath || selectedIsDir" description="选择文件以开始编辑" class="mt-40" />
+                          <a-textarea
+                            v-else
+                            v-model:value="fileContent"
+                            class="pure-editor"
+                            spellcheck="false"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  </a-tab-pane>
+
+                  <a-tab-pane key="dependencies">
+                    <template #tab>
+                      <span class="tab-title"><Layers :size="14" />依赖管理</span>
+                    </template>
+                    <div class="config-view">
+                      <div class="config-header">
+                        <div class="text">
+                          <h3>依赖声明</h3>
+                          <p>配置此 Skill 所需的工具、MCP 服务器及其他 Skill 依赖。</p>
+                        </div>
+                        <a-button type="primary" :loading="savingDependencies" @click="saveDependencies" class="lucide-icon-btn">
+                          <Save :size="14" />
+                          <span>更新依赖</span>
+                        </a-button>
+                      </div>
+
+                      <div class="config-form">
+                        <a-form layout="vertical">
+                          <a-form-item label="工具依赖 (Tools)">
+                            <a-select v-model:value="dependencyForm.tool_dependencies" mode="multiple" :options="toolDependencyOptions" placeholder="选择工具..." allow-clear show-search />
+                          </a-form-item>
+                          <a-form-item label="MCP 依赖 (Model Context Protocol)">
+                            <a-select v-model:value="dependencyForm.mcp_dependencies" mode="multiple" :options="mcpDependencyOptions" placeholder="选择 MCP 服务..." allow-clear show-search />
+                          </a-form-item>
+                          <a-form-item label="Skill 依赖">
+                            <a-select v-model:value="dependencyForm.skill_dependencies" mode="multiple" :options="skillDependencyOptions" placeholder="选择 Skill..." allow-clear show-search />
+                          </a-form-item>
+                        </a-form>
+                      </div>
+                    </div>
+                  </a-tab-pane>
+                </a-tabs>
+              </div>
+            </template>
+          </div>
+        </div>
     </div>
 
-    <a-spin :spinning="loading">
-      <div class="content-layout">
-        <div class="skills-list-panel">
-          <a-table
-            size="small"
-            :columns="columns"
-            :data-source="skills"
-            :pagination="false"
-            row-key="slug"
-            :custom-row="bindSkillRow"
-            :row-class-name="rowClassName"
-            :scroll="{ y: 360 }"
-          />
-        </div>
-
-        <div class="skill-detail-panel">
-          <a-empty v-if="!currentSkill" description="请选择一个 Skill" />
-
-          <template v-else>
-            <div class="detail-header">
-              <div class="detail-title">
-                <strong>{{ currentSkill.name }}</strong>
-                <span class="slug">({{ currentSkill.slug }})</span>
-                <span class="dependency-summary">
-                  工具 {{ (currentSkill.tool_dependencies || []).length }} · MCP
-                  {{ (currentSkill.mcp_dependencies || []).length }} · Skills
-                  {{ (currentSkill.skill_dependencies || []).length }}
-                </span>
-              </div>
-              <div class="detail-actions">
-                <a-button size="small" @click="reloadTree">刷新目录</a-button>
-                <a-button size="small" @click="openCreateModal(false)">新建文件</a-button>
-                <a-button size="small" @click="openCreateModal(true)">新建目录</a-button>
-                <a-button size="small" @click="handleExport">导出 ZIP</a-button>
-                <a-button danger size="small" @click="confirmDeleteSkill">删除 Skill</a-button>
-              </div>
-            </div>
-
-            <div class="dependency-panel">
-              <div class="dependency-header">
-                <span class="dependency-title">依赖管理</span>
-                <a-button
-                  type="primary"
-                  size="small"
-                  :loading="savingDependencies"
-                  :disabled="loading || savingDependencies"
-                  @click="saveDependencies"
-                >
-                  保存依赖
-                </a-button>
-              </div>
-              <a-form layout="vertical" class="dependency-form">
-                <a-form-item label="工具依赖">
-                  <a-select
-                    v-model:value="dependencyForm.tool_dependencies"
-                    mode="multiple"
-                    :options="toolDependencyOptions"
-                    placeholder="选择工具依赖"
-                    :disabled="loading || savingDependencies"
-                    allow-clear
-                  />
-                </a-form-item>
-                <a-form-item label="MCP 依赖">
-                  <a-select
-                    v-model:value="dependencyForm.mcp_dependencies"
-                    mode="multiple"
-                    :options="mcpDependencyOptions"
-                    placeholder="选择 MCP 服务依赖"
-                    :disabled="loading || savingDependencies"
-                    allow-clear
-                  />
-                </a-form-item>
-                <a-form-item label="Skill 依赖">
-                  <a-select
-                    v-model:value="dependencyForm.skill_dependencies"
-                    mode="multiple"
-                    :options="skillDependencyOptions"
-                    placeholder="选择 Skill 依赖"
-                    :disabled="loading || savingDependencies"
-                    allow-clear
-                  />
-                </a-form-item>
-              </a-form>
-            </div>
-
-            <div class="detail-body">
-              <div class="tree-panel">
-                <div class="tree-toolbar">
-                  <span class="tree-title">目录树</span>
-                  <a-button
-                    size="small"
-                    danger
-                    @click="confirmDeleteNode"
-                    :disabled="!selectedPath || selectedPath === 'SKILL.md'"
-                  >
-                    删除节点
-                  </a-button>
-                </div>
-                <a-tree
-                  :tree-data="treeData"
-                  :selected-keys="selectedTreeKeys"
-                  :default-expand-all="true"
-                  @select="handleTreeSelect"
-                />
-              </div>
-
-              <div class="editor-panel">
-                <div class="editor-toolbar">
-                  <span class="editor-path">{{ selectedPath || '请选择文本文件' }}</span>
-                  <a-button
-                    type="primary"
-                    size="small"
-                    @click="saveCurrentFile"
-                    :disabled="!canSave"
-                    :loading="savingFile"
-                  >
-                    保存
-                  </a-button>
-                </div>
-
-                <a-empty v-if="!selectedPath || selectedIsDir" description="请选择文本文件后编辑" />
-                <a-textarea
-                  v-else
-                  v-model:value="fileContent"
-                  :rows="22"
-                  class="file-editor"
-                  placeholder="文件内容"
-                />
-              </div>
-            </div>
-          </template>
-        </div>
-      </div>
-    </a-spin>
-
+    <!-- 弹窗 -->
     <a-modal
       v-model:open="createModalVisible"
       :title="createForm.isDir ? '新建目录' : '新建文件'"
       @ok="handleCreateNode"
       :confirm-loading="creatingNode"
-      :maskClosable="false"
+      width="400px"
     >
-      <a-form layout="vertical">
-        <a-form-item label="路径（相对 skill 根目录）" required>
-          <a-input v-model:value="createForm.path" placeholder="例如 prompts/guide.md" />
+      <a-form layout="vertical" class="pt-12">
+        <a-form-item label="路径 (相对于根目录)" required>
+          <a-input v-model:value="createForm.path" placeholder="src/main.py" />
         </a-form-item>
-        <a-form-item v-if="!createForm.isDir" label="文件内容">
-          <a-textarea v-model:value="createForm.content" :rows="8" />
+        <a-form-item v-if="!createForm.isDir" label="内容">
+          <a-textarea v-model:value="createForm.content" :rows="5" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -175,13 +207,26 @@
 <script setup>
 import { computed, onMounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import dayjs from 'dayjs'
+import relativeTime from 'dayjs/plugin/relativeTime'
+import 'dayjs/locale/zh-cn'
+import {
+  Upload, RotateCw, Download, Trash2, Save, FileText, Layers,
+  FilePlus, FolderPlus, File, Search, Box, FileCode
+} from 'lucide-vue-next'
 import { skillApi } from '@/apis/skill_api'
+import HeaderComponent from '@/components/HeaderComponent.vue'
+
+dayjs.extend(relativeTime)
+dayjs.locale('zh-cn')
 
 const loading = ref(false)
 const importing = ref(false)
 const savingFile = ref(false)
 const creatingNode = ref(false)
 const savingDependencies = ref(false)
+const activeTab = ref('editor')
+const searchQuery = ref('')
 
 const skills = ref([])
 const currentSkill = ref(null)
@@ -193,73 +238,31 @@ const fileContent = ref('')
 const originalFileContent = ref('')
 
 const createModalVisible = ref(false)
-const createForm = reactive({
-  path: '',
-  isDir: false,
-  content: ''
-})
-const dependencyOptions = reactive({
-  tools: [],
-  mcps: [],
-  skills: []
-})
-const dependencyForm = reactive({
-  tool_dependencies: [],
-  mcp_dependencies: [],
-  skill_dependencies: []
-})
+const createForm = reactive({ path: '', isDir: false, content: '' })
+const dependencyOptions = reactive({ tools: [], mcps: [], skills: [] })
+const dependencyForm = reactive({ tool_dependencies: [], mcp_dependencies: [], skill_dependencies: [] })
 
-const columns = [
-  { title: '名称', dataIndex: 'name', key: 'name', width: 180, ellipsis: true },
-  { title: 'Slug', dataIndex: 'slug', key: 'slug', width: 180, ellipsis: true },
-  {
-    title: '依赖',
-    key: 'dependencies',
-    width: 150,
-    customRender: ({ record }) =>
-      `T${(record.tool_dependencies || []).length} / M${(record.mcp_dependencies || []).length} / S${(record.skill_dependencies || []).length}`
-  },
-  { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
-  { title: '更新时间', dataIndex: 'updated_at', key: 'updated_at', width: 180, ellipsis: true }
-]
+const filteredSkills = computed(() => {
+  if (!searchQuery.value) return skills.value
+  const q = searchQuery.value.toLowerCase()
+  return skills.value.filter(s => s.name.toLowerCase().includes(q) || s.slug.toLowerCase().includes(q))
+})
 
 const canSave = computed(() => {
   if (!selectedPath.value || selectedIsDir.value) return false
   return fileContent.value !== originalFileContent.value
 })
 
-const rowClassName = (record) => {
-  return currentSkill.value?.slug === record.slug ? 'selected-row' : ''
-}
+const formatRelativeTime = (time) => time ? dayjs(time).fromNow() : '-'
 
-const toolDependencyOptions = computed(() =>
-  (dependencyOptions.tools || []).map((item) => ({ label: item, value: item }))
-)
+const toolDependencyOptions = computed(() => (dependencyOptions.tools || []).map(i => ({ label: i, value: i })))
+const mcpDependencyOptions = computed(() => (dependencyOptions.mcps || []).map(i => ({ label: i, value: i })))
+const skillDependencyOptions = computed(() => (dependencyOptions.skills || []).filter(s => s !== currentSkill.value?.slug).map(i => ({ label: i, value: i })))
 
-const mcpDependencyOptions = computed(() =>
-  (dependencyOptions.mcps || []).map((item) => ({ label: item, value: item }))
-)
-
-const skillDependencyOptions = computed(() =>
-  (dependencyOptions.skills || [])
-    .filter((slug) => slug !== currentSkill.value?.slug)
-    .map((item) => ({ label: item, value: item }))
-)
-
-const bindSkillRow = (record) => ({
-  onClick: () => selectSkill(record)
-})
-
-const normalizeTree = (nodes) => {
-  return (nodes || []).map((node) => ({
-    title: node.name,
-    key: node.path,
-    isLeaf: !node.is_dir,
-    path: node.path,
-    is_dir: node.is_dir,
-    children: node.is_dir ? normalizeTree(node.children || []) : undefined
-  }))
-}
+const normalizeTree = (nodes) => (nodes || []).map(node => ({
+  title: node.name, key: node.path, isLeaf: !node.is_dir, path: node.path, is_dir: node.is_dir,
+  children: node.is_dir ? normalizeTree(node.children || []) : undefined
+}))
 
 const resetFileState = () => {
   selectedPath.value = ''
@@ -274,21 +277,20 @@ const fetchSkills = async () => {
   try {
     const result = await skillApi.listSkills()
     skills.value = result?.data || []
-
     if (currentSkill.value) {
-      const latest = skills.value.find((item) => item.slug === currentSkill.value.slug)
-      if (!latest) {
+      const latest = skills.value.find(i => i.slug === currentSkill.value.slug)
+      if (latest) {
+        currentSkill.value = latest
+        syncDependencyFormFromSkill(latest)
+      } else {
         currentSkill.value = null
         treeData.value = []
         resetFileState()
-      } else {
-        currentSkill.value = latest
-        syncDependencyFormFromSkill(latest)
       }
     }
     await fetchDependencyOptions()
   } catch (error) {
-    message.error(error.message || '获取 Skills 列表失败')
+    message.error('加载失败')
   } finally {
     loading.value = false
   }
@@ -301,9 +303,7 @@ const fetchDependencyOptions = async () => {
     dependencyOptions.tools = data.tools || []
     dependencyOptions.mcps = data.mcps || []
     dependencyOptions.skills = data.skills || []
-  } catch (error) {
-    message.error(error.message || '获取依赖选项失败')
-  }
+  } catch {}
 }
 
 const syncDependencyFormFromSkill = (skillRecord) => {
@@ -318,8 +318,8 @@ const reloadTree = async () => {
   try {
     const result = await skillApi.getSkillTree(currentSkill.value.slug)
     treeData.value = normalizeTree(result?.data || [])
-  } catch (error) {
-    message.error(error.message || '加载目录树失败')
+  } catch {
+    message.error('加载目录树失败')
   } finally {
     loading.value = false
   }
@@ -333,31 +333,24 @@ const selectSkill = async (record) => {
 }
 
 const handleTreeSelect = async (keys, info) => {
-  if (!keys?.length) {
-    resetFileState()
-    return
-  }
-
+  if (!keys?.length) { resetFileState(); return }
   const node = info?.node || {}
   const path = node.path || node.key
   const isDir = !!node.is_dir
   selectedTreeKeys.value = [path]
   selectedPath.value = path
   selectedIsDir.value = isDir
-
   if (isDir) {
-    fileContent.value = ''
-    originalFileContent.value = ''
+    fileContent.value = ''; originalFileContent.value = ''
     return
   }
-
   try {
     const result = await skillApi.getSkillFile(currentSkill.value.slug, path)
     const content = result?.data?.content || ''
     fileContent.value = content
     originalFileContent.value = content
-  } catch (error) {
-    message.error(error.message || '读取文件失败')
+  } catch {
+    message.error('文件读取失败')
   }
 }
 
@@ -366,16 +359,13 @@ const saveCurrentFile = async () => {
   savingFile.value = true
   try {
     await skillApi.updateSkillFile(currentSkill.value.slug, {
-      path: selectedPath.value,
-      content: fileContent.value
+      path: selectedPath.value, content: fileContent.value
     })
     originalFileContent.value = fileContent.value
-    message.success('保存成功')
-    if (selectedPath.value === 'SKILL.md') {
-      await fetchSkills()
-    }
-  } catch (error) {
-    message.error(error.message || '保存失败')
+    message.success('已保存')
+    if (selectedPath.value === 'SKILL.md') await fetchSkills()
+  } catch {
+    message.error('保存失败')
   } finally {
     savingFile.value = false
   }
@@ -383,30 +373,22 @@ const saveCurrentFile = async () => {
 
 const openCreateModal = (isDir) => {
   if (!currentSkill.value) return
-  createForm.path = ''
-  createForm.content = ''
-  createForm.isDir = isDir
+  createForm.path = ''; createForm.content = ''; createForm.isDir = isDir
   createModalVisible.value = true
 }
 
 const handleCreateNode = async () => {
-  if (!currentSkill.value) return
-  if (!createForm.path.trim()) {
-    message.warning('请输入路径')
-    return
-  }
+  if (!currentSkill.value || !createForm.path.trim()) return
   creatingNode.value = true
   try {
     await skillApi.createSkillFile(currentSkill.value.slug, {
-      path: createForm.path.trim(),
-      is_dir: createForm.isDir,
-      content: createForm.content
+      path: createForm.path.trim(), is_dir: createForm.isDir, content: createForm.content
     })
     createModalVisible.value = false
     await reloadTree()
-    message.success(createForm.isDir ? '目录创建成功' : '文件创建成功')
-  } catch (error) {
-    message.error(error.message || '创建失败')
+    message.success('创建成功')
+  } catch {
+    message.error('创建失败')
   } finally {
     creatingNode.value = false
   }
@@ -415,53 +397,32 @@ const handleCreateNode = async () => {
 const confirmDeleteNode = () => {
   if (!currentSkill.value || !selectedPath.value || selectedPath.value === 'SKILL.md') return
   Modal.confirm({
-    title: '确认删除节点？',
-    content: selectedPath.value,
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
+    title: '确认删除？',
+    content: `将永久删除: ${selectedPath.value}`,
+    okText: '删除', okType: 'danger', cancelText: '取消',
     onOk: async () => {
       try {
         await skillApi.deleteSkillFile(currentSkill.value.slug, selectedPath.value)
-        resetFileState()
-        await reloadTree()
-        message.success('删除成功')
-      } catch (error) {
-        message.error(error.message || '删除失败')
-      }
+        resetFileState(); await reloadTree(); message.success('已删除')
+      } catch { message.error('删除失败') }
     }
   })
 }
 
 const confirmDeleteSkill = () => {
   if (!currentSkill.value) return
-  const slug = currentSkill.value.slug
   Modal.confirm({
-    title: `确认删除 Skill「${slug}」？`,
-    content: '将同时删除技能目录与数据库记录，该操作不可恢复。',
-    okText: '删除',
-    okType: 'danger',
-    cancelText: '取消',
+    title: `彻底删除技能「${currentSkill.value.slug}」？`,
+    content: '删除后无法恢复，所有文件和配置将永久消失。',
+    okText: '确认删除', okType: 'danger', cancelText: '取消',
     onOk: async () => {
       try {
-        await skillApi.deleteSkill(slug)
-        message.success('Skill 删除成功')
-        currentSkill.value = null
-        treeData.value = []
-        resetFileState()
-        await fetchSkills()
-      } catch (error) {
-        message.error(error.message || '删除 Skill 失败')
-      }
+        await skillApi.deleteSkill(currentSkill.value.slug)
+        message.success('已删除'); currentSkill.value = null; treeData.value = []
+        resetFileState(); await fetchSkills()
+      } catch { message.error('删除失败') }
     }
   })
-}
-
-const getDownloadFilename = (response, fallback) => {
-  const header = response.headers.get('content-disposition') || ''
-  const match = header.match(/filename\*=UTF-8''([^;]+)|filename="?([^";]+)"?/i)
-  if (!match) return fallback
-  return decodeURIComponent(match[1] || match[2] || fallback)
 }
 
 const handleExport = async () => {
@@ -469,40 +430,25 @@ const handleExport = async () => {
   try {
     const response = await skillApi.exportSkill(currentSkill.value.slug)
     const blob = await response.blob()
-    const filename = getDownloadFilename(response, `${currentSkill.value.slug}.zip`)
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
-    link.href = url
-    link.download = filename
-    document.body.appendChild(link)
-    link.click()
-    link.remove()
-    URL.revokeObjectURL(url)
-  } catch (error) {
-    message.error(error.message || '导出失败')
-  }
+    link.href = url; link.download = `${currentSkill.value.slug}.zip`
+    link.click(); URL.revokeObjectURL(url)
+  } catch { message.error('导出失败') }
 }
 
 const handleImportUpload = async ({ file, onSuccess, onError }) => {
   importing.value = true
   try {
     const result = await skillApi.importSkillZip(file)
-    message.success('导入成功')
-    await fetchSkills()
+    message.success('导入完成'); await fetchSkills()
     const imported = result?.data
     if (imported?.slug) {
-      const record = skills.value.find((item) => item.slug === imported.slug)
-      if (record) {
-        await selectSkill(record)
-      }
+      const record = skills.value.find(i => i.slug === imported.slug)
+      if (record) await selectSkill(record)
     }
     onSuccess?.(result)
-  } catch (error) {
-    message.error(error.message || '导入失败')
-    onError?.(error)
-  } finally {
-    importing.value = false
-  }
+  } catch (e) { message.error('导入失败'); onError?.(e) } finally { importing.value = false }
 }
 
 const saveDependencies = async () => {
@@ -514,172 +460,323 @@ const saveDependencies = async () => {
       mcp_dependencies: dependencyForm.mcp_dependencies,
       skill_dependencies: dependencyForm.skill_dependencies
     })
-    const updated = result?.data || null
-    if (updated) {
-      currentSkill.value = updated
-      syncDependencyFormFromSkill(updated)
-    }
-    await fetchSkills()
-    message.success('依赖保存成功')
-  } catch (error) {
-    message.error(error.message || '依赖保存失败')
-  } finally {
-    savingDependencies.value = false
-  }
+    const updated = result?.data
+    if (updated) { currentSkill.value = updated; syncDependencyFormFromSkill(updated) }
+    await fetchSkills(); message.success('依赖已更新')
+  } catch { message.error('更新失败') } finally { savingDependencies.value = false }
 }
 
-onMounted(() => {
-  fetchSkills()
-})
+onMounted(fetchSkills)
 </script>
 
 <style scoped lang="less">
-.skills-manager {
-  padding: 16px;
-}
+/* 基础变量模拟 Shadcn/UI */
+@border-color: var(--gray-150);
+@bg-secondary: var(--gray-10); /* 调浅背景颜色 */
+@radius: 8px;
 
-.header-section {
+.skills-manager-container {
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.title {
-  margin-bottom: 4px;
-}
-
-.description {
-  margin: 0;
-  color: var(--gray-600);
-}
-
-.header-actions {
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-}
-
-.content-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 36%) 1fr;
-  gap: 12px;
-}
-
-.skills-list-panel {
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--gray-0);
   overflow: hidden;
 }
 
-.skill-detail-panel {
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  padding: 10px;
-  min-height: 420px;
+.main-header {
+  height: 74px;
+  box-sizing: border-box;
+  border-bottom: 1px solid @border-color;
+  flex-shrink: 0;
 }
 
-.detail-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-
-.detail-title {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.slug {
-  color: var(--gray-600);
-}
-
-.dependency-summary {
-  color: var(--gray-600);
-  font-size: 12px;
-}
-
-.detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-
-.dependency-panel {
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  padding: 8px;
-  margin-bottom: 10px;
-}
-
-.dependency-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-
-.dependency-title {
-  font-weight: 600;
-}
-
-.dependency-form :deep(.ant-form-item) {
-  margin-bottom: 8px;
-}
-
-.detail-body {
-  display: grid;
-  grid-template-columns: minmax(240px, 35%) 1fr;
-  gap: 12px;
-}
-
-.tree-panel,
-.editor-panel {
-  border: 1px solid var(--gray-150);
-  border-radius: 8px;
-  padding: 8px;
-  min-height: 360px;
-}
-
-.tree-toolbar,
-.editor-toolbar {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-  gap: 8px;
-}
-
-.tree-title {
-  font-weight: 600;
-}
-
-.editor-path {
-  color: var(--gray-700);
+.content-body {
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  height: calc(100vh - 74px);
 }
 
-.file-editor {
-  font-family: Menlo, Monaco, Consolas, 'Courier New', monospace;
+.full-spin {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  :deep(.ant-spin-container) {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+  }
+  :deep(.ant-spin-nested-loading) {
+    height: 100%;
+  }
 }
 
-:deep(.selected-row td) {
-  background: var(--gray-100) !important;
+.layout-wrapper {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  height: 100%;
 }
 
-@media (max-width: 1200px) {
-  .content-layout {
-    grid-template-columns: 1fr;
+/* 左侧列表 */
+.sidebar-list {
+  width: 280px;
+  border-right: 1px solid @border-color;
+  background-color: @bg-secondary;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+
+  .search-box {
+    padding: 12px 12px;
+    padding-bottom: 0;
+    display: flex;
+    align-items: center;
+
+    .search-input {
+      :deep(.ant-input) {
+        height: 32px;
+      }
+    }
   }
 
-  .detail-body {
-    grid-template-columns: 1fr;
+  .list-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
   }
+}
+
+.list-item {
+  padding: 10px 12px;
+  border-radius: @radius;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: 1px solid transparent;
+
+  &:hover { background-color: var(--gray-100); }
+
+  &.active {
+    background-color: var(--gray-0);
+    border-color: @border-color;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+    .item-icon { color: var(--main-color); }
+    .item-name { color: var(--gray-900); }
+  }
+
+  .item-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 4px;
+    .item-icon { color: var(--gray-400); }
+    .item-name { font-size: 14px; font-weight: 500; color: var(--gray-700); }
+  }
+
+  .item-details {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    .item-slug { font-size: 12px; color: var(--gray-400); font-family: monospace; }
+    .item-badges {
+      display: flex; gap: 4px;
+      .dot-badge {
+        width: 6px; height: 6px; border-radius: 50%;
+        &.blue { background-color: #3b82f6; }
+        &.green { background-color: #22c55e; }
+      }
+    }
+  }
+}
+
+/* 右侧面板 */
+.main-panel {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background-color: var(--gray-0);
+
+  .unselected-state {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: @bg-secondary;
+    .hint-box { text-align: center; p { margin-top: 12px; color: var(--gray-400); } }
+  }
+
+  .panel-top-bar {
+    padding: 12px 24px;
+    box-sizing: border-box;
+    border-bottom: 1px solid @border-color;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-shrink: 0;
+
+    .skill-summary {
+      min-height: 32px;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      h2 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.2; }
+      code { font-size: 12px; color: var(--gray-500); background: @bg-secondary; padding: 2px 6px; border-radius: 4px; margin-top: 4px; display: inline-block; }
+    }
+  }
+}
+
+/* Tabs & 内部布局 */
+.tabs-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+
+  .minimal-tabs {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+
+    :deep(.ant-tabs-nav) {
+      margin: 0;
+      padding: 0 24px;
+      border-bottom: 1px solid @border-color;
+      flex-shrink: 0;
+      &::before { border-bottom: none; }
+    }
+    :deep(.ant-tabs-content) { flex: 1; min-height: 0; height: 100%; overflow: hidden; }
+    :deep(.ant-tabs-tabpane) { height: 100%; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+  }
+
+  .tab-title { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+}
+
+.workspace {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* 文件树 */
+.tree-container {
+  width: 240px;
+  border-right: 1px solid @border-color;
+  background-color: @bg-secondary;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+
+  .tree-header {
+    padding: 10px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid @border-color;
+    background-color: var(--gray-50);
+    .label { font-size: 11px; font-weight: 600; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.5px; }
+    .tree-actions {
+      display: flex; gap: 4px;
+      button {
+        background: none; border: none; padding: 2px; cursor: pointer; color: var(--gray-400);
+        display: flex; align-items: center;
+        &:hover { color: var(--gray-900); }
+      }
+    }
+  }
+
+  .tree-content {
+    flex: 1; overflow-y: auto; padding: 8px;
+    :deep(.ant-tree) {
+      background: transparent;
+      .ant-tree-node-content-wrapper { border-radius: 4px; font-size: 13px; padding: 4px 8px; }
+      .ant-tree-node-selected { background-color: var(--gray-200) !important; font-weight: 500; }
+    }
+  }
+}
+
+/* 编辑器 */
+.editor-container {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+
+  .editor-header {
+    padding: 8px 16px;
+    border-bottom: 1px solid @border-color;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background-color: var(--gray-0);
+    flex-shrink: 0;
+
+    .current-path {
+      display: flex; align-items: center; gap: 8px; font-family: monospace; font-size: 12px; color: var(--gray-500);
+      .save-hint { color: #f59e0b; font-size: 10px; margin-left: 4px; }
+    }
+  }
+
+  .editor-main {
+  flex: 1;
+  min-height: 0;
+  background-color: var(--gray-0);
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-main :deep(.ant-empty) {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.editor-main :deep(textarea) {
+  flex: 1;
+  min-height: 0;
+}
+  .pure-editor {
+    width: 100%; height: 100%; border: none; resize: none; padding: 20px;
+    font-family: 'Fira Code', 'Monaco', monospace; font-size: 13px; line-height: 1.6;
+    &:focus { outline: none; }
+  }
+}
+
+/* 依赖配置 */
+.config-view {
+  padding: 32px; flex: 1; overflow-y: auto;
+  .config-header {
+    display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px;
+    flex-shrink: 0;
+    .text {
+      h3 { margin: 0 0 4px 0; font-size: 16px; font-weight: 600; }
+      p { margin: 0; color: var(--gray-500); font-size: 13px; }
+    }
+  }
+  .config-form { max-width: 600px; :deep(.ant-form-item-label label) { font-weight: 500; font-size: 13px; } }
+}
+
+/* 辅助类 */
+.text-muted { color: var(--gray-400); }
+.mt-40 { margin-top: 40px; }
+.pt-12 { padding-top: 12px; }
+
+@media (max-width: 1000px) {
+  .sidebar-list { width: 220px; }
+  .tree-container { width: 180px; }
 }
 </style>
