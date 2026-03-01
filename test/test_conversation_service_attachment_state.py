@@ -80,8 +80,8 @@ async def test_sync_thread_attachment_state_updates_graph(monkeypatch: pytest.Mo
     assert captured["write_config"] == {"configurable": {"thread_id": "thread-1", "user_id": "u1"}}
     assert captured["write_values"]["attachments"] == attachments
     assert "/attachments/resume.md" in captured["write_values"]["files"]
-    assert "/attachments/old.md" not in captured["write_values"]["files"]
-    assert "/work/result.md" in captured["write_values"]["files"]
+    assert captured["write_values"]["files"]["/attachments/old.md"] is None
+    assert "/work/result.md" not in captured["write_values"]["files"]
 
 
 @pytest.mark.asyncio

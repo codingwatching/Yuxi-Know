@@ -11,6 +11,8 @@ from pymilvus import connections, utility
 
 from src import config
 from src.knowledge.base import FileStatus, KnowledgeBase
+from src.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown
+from src.knowledge.chunking.ragflow_like.presets import resolve_chunk_processing_params
 from src.knowledge.indexing import process_file_to_markdown
 from src.knowledge.utils.kb_utils import get_embedding_config
 from src.utils import hashstr, logger
@@ -39,6 +41,18 @@ class LightRagKB(KnowledgeBase):
     def kb_type(self) -> str:
         """知识库类型标识"""
         return "lightrag"
+
+    @staticmethod
+    def _prepare_lightrag_insert_payload(chunks: list[dict]) -> tuple[str, str | None, bool]:
+        if not chunks:
+            return "", None, False
+
+        if len(chunks) == 1:
+            return chunks[0]["content"], None, False
+
+        delimiter = "\n<|YUXI_CHUNK_DELIM|>\n"
+        payload = delimiter.join(chunk["content"] for chunk in chunks if chunk.get("content"))
+        return payload, delimiter, True
 
     def delete_database(self, db_id: str) -> dict:
         """删除数据库，同时清除Milvus和Neo4j中的数据"""
@@ -136,6 +150,21 @@ class LightRagKB(KnowledgeBase):
         logger.info(f"Initializing LightRAG instance for {instance.working_dir}")
         await instance.initialize_storages()
         await initialize_pipeline_status()
+
+    @staticmethod
+    async def _ensure_doc_processed(rag: LightRAG, file_id: str) -> None:
+        """确保 LightRAG 文档处理成功，否则抛出异常。"""
+        status_doc = await rag.doc_status.get_by_id(file_id)
+        if not status_doc:
+            raise ValueError(f"LightRAG 文档状态缺失: {file_id}")
+
+        status = status_doc.get("status")
+        status_value = status.value if hasattr(status, "value") else status
+        if status_value not in {"processed", "preprocessed"}:
+            error_msg = status_doc.get("error_msg") or "unknown error"
+            raise ValueError(
+                f"LightRAG 实体关系抽取失败: file_id={file_id}, status={status_value}, error={error_msg}"
+            )
 
     async def _get_lightrag_instance(self, db_id: str) -> LightRAG | None:
         """获取或创建 LightRAG 实例"""
@@ -293,14 +322,36 @@ class LightRagKB(KnowledgeBase):
             # Read markdown
             markdown_content = await self._read_markdown_from_minio(file_meta["markdown_file"])
             file_path = file_meta.get("path")
+            filename = file_meta.get("filename") or file_id
+            processing_params = resolve_chunk_processing_params(
+                kb_additional_params=self.databases_meta.get(db_id, {}).get("metadata"),
+                file_processing_params=file_meta.get("processing_params"),
+            )
+            self.files_meta[file_id]["processing_params"] = processing_params
+            await self._save_metadata()
+
+            chunks = chunk_markdown(markdown_content, file_id, filename, processing_params)
+            chunk_input, split_by_character, split_by_character_only = self._prepare_lightrag_insert_payload(chunks)
+            if not chunk_input:
+                chunk_input = markdown_content
 
             # Clean up existing chunks if any (for re-indexing)
             await self.delete_file_chunks_only(db_id, file_id)
 
             # Insert
-            await rag.ainsert(input=markdown_content, ids=file_id, file_paths=file_path)
+            await rag.ainsert(
+                input=chunk_input,
+                ids=file_id,
+                file_paths=file_path,
+                split_by_character=split_by_character,
+                split_by_character_only=split_by_character_only,
+            )
+            await self._ensure_doc_processed(rag, file_id)
 
-            logger.info(f"Indexed file {file_id} into LightRAG")
+            logger.info(
+                f"Indexed file {file_id} into LightRAG with {len(chunks)} chunks, "
+                f"chunk_preset_id={processing_params.get('chunk_preset_id')}"
+            )
 
             # Update status
             self.files_meta[file_id]["status"] = FileStatus.INDEXED
@@ -358,7 +409,12 @@ class LightRagKB(KnowledgeBase):
 
             try:
                 # 更新状态为处理中
-                self.files_meta[file_id]["processing_params"] = params.copy()
+                resolved_params = resolve_chunk_processing_params(
+                    kb_additional_params=self.databases_meta.get(db_id, {}).get("metadata"),
+                    file_processing_params=self.files_meta[file_id].get("processing_params"),
+                    request_params=params,
+                )
+                self.files_meta[file_id]["processing_params"] = resolved_params
                 self.files_meta[file_id]["status"] = "processing"
                 await self._persist_file(file_id)
 
@@ -368,12 +424,24 @@ class LightRagKB(KnowledgeBase):
                 markdown_content = await process_file_to_markdown(file_path, params=params)
                 markdown_content_lines = markdown_content[:100].replace("\n", " ")
                 logger.info(f"Markdown content: {markdown_content_lines}...")
+                filename = file_meta.get("filename") or file_id
+                chunks = chunk_markdown(markdown_content, file_id, filename, resolved_params)
+                chunk_input, split_by_character, split_by_character_only = self._prepare_lightrag_insert_payload(chunks)
+                if not chunk_input:
+                    chunk_input = markdown_content
 
                 # 先删除现有的 LightRAG 数据（仅删除chunks，保留元数据）
                 await self.delete_file_chunks_only(db_id, file_id)
 
                 # 使用 LightRAG 重新插入内容
-                await rag.ainsert(input=markdown_content, ids=file_id, file_paths=file_path)
+                await rag.ainsert(
+                    input=chunk_input,
+                    ids=file_id,
+                    file_paths=file_path,
+                    split_by_character=split_by_character,
+                    split_by_character_only=split_by_character_only,
+                )
+                await self._ensure_doc_processed(rag, file_id)
 
                 logger.info(f"Updated {content_type} {file_path} in LightRAG. Done.")
 

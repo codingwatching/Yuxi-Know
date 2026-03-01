@@ -87,26 +87,26 @@ async def _sync_thread_attachment_state(
         if not isinstance(existing_files, dict):
             existing_files = {}
 
-        # 保留非 /attachments/ 开头的现有文件（如 Agent 创建的 a.md）
-        merged_files = {
-            path: file_data
-            for path, file_data in existing_files.items()
-            if isinstance(path, str) and not path.startswith("/attachments/")
+        # 仅对 /attachments 命名空间做增量更新，避免覆盖 agent 运行期生成的其它文件。
+        next_attachment_files = _build_state_files(attachments)
+        prev_attachment_paths = {
+            path
+            for path in existing_files.keys()
+            if isinstance(path, str) and path.startswith("/attachments/")
         }
+        next_attachment_paths = set(next_attachment_files.keys())
 
-        # 添加附件文件
-        attachment_files = _build_state_files(attachments)
-        merged_files.update(attachment_files)
+        file_updates: dict[str, dict | None] = {**next_attachment_files}
+        for removed_path in prev_attachment_paths - next_attachment_paths:
+            file_updates[removed_path] = None
 
         # 使用 Command 确保 reducer 被正确应用
         await graph.aupdate_state(
             config=config,
-            values=Command(
-                update={
-                    "attachments": attachments,
-                    "files": merged_files,
-                }
-            ),
+            values={
+                "attachments": attachments,
+                "files": file_updates,
+            },
         )
     except Exception as e:
         logger.warning(f"Failed to sync attachment state for thread {thread_id}: {e}")

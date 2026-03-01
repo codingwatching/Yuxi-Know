@@ -10,11 +10,10 @@ from pymilvus import Collection, CollectionSchema, DataType, FieldSchema, connec
 
 from src import config
 from src.knowledge.base import FileStatus, KnowledgeBase
+from src.knowledge.chunking.ragflow_like.dispatcher import chunk_markdown
+from src.knowledge.chunking.ragflow_like.presets import resolve_chunk_processing_params
 from src.knowledge.indexing import process_file_to_markdown
-from src.knowledge.utils.kb_utils import (
-    get_embedding_config,
-    split_text_into_chunks,
-)
+from src.knowledge.utils.kb_utils import get_embedding_config
 from src.models.embed import OtherEmbedding
 from src.utils import hashstr, logger
 from src.utils.datetime_utils import utc_isoformat
@@ -191,13 +190,14 @@ class MilvusKB(KnowledgeBase):
     def _get_async_embedding_function(self, embed_info: dict):
         """获取 embedding 函数"""
         embedding_model = self._get_async_embedding(embed_info)
-        return partial(embedding_model.abatch_encode, batch_size=10)
+        batch_size = int(getattr(embedding_model, "batch_size", 40) or 40)
+        return partial(embedding_model.abatch_encode, batch_size=batch_size)
 
     def _get_embedding_function(self, embed_info: dict):
         """获取 embedding 函数"""
         embedding_model = self._get_async_embedding(embed_info)
-
-        return partial(embedding_model.batch_encode, batch_size=10)
+        batch_size = int(getattr(embedding_model, "batch_size", 40) or 40)
+        return partial(embedding_model.batch_encode, batch_size=batch_size)
 
     async def _get_milvus_collection(self, db_id: str):
         """获取或创建 Milvus 集合"""
@@ -222,7 +222,7 @@ class MilvusKB(KnowledgeBase):
 
     def _split_text_into_chunks(self, text: str, file_id: str, filename: str, params: dict) -> list[dict]:
         """将文本分割成块"""
-        return split_text_into_chunks(text, file_id, filename, params)
+        return chunk_markdown(text, file_id, filename, params)
 
     async def index_file(self, db_id: str, file_id: str, operator_id: str | None = None) -> dict:
         """
@@ -281,10 +281,14 @@ class MilvusKB(KnowledgeBase):
             self.files_meta[file_id]["updated_at"] = utc_isoformat()
             if operator_id:
                 self.files_meta[file_id]["updated_by"] = operator_id
-            await self._persist_file(file_id)
 
             # Read processing params inside lock to ensure we get the latest values
-            params = file_meta.get("processing_params", {}) or {}
+            params = resolve_chunk_processing_params(
+                kb_additional_params=self.databases_meta.get(db_id, {}).get("metadata"),
+                file_processing_params=file_meta.get("processing_params"),
+            )
+            self.files_meta[file_id]["processing_params"] = params
+            await self._save_metadata()
             logger.debug(f"[index_file] file_id={file_id}, processing_params={params}")
 
         # Add to processing queue
@@ -299,6 +303,7 @@ class MilvusKB(KnowledgeBase):
             chunks = self._split_text_into_chunks(markdown_content, file_id, filename, params)
             logger.info(
                 f"Split {filename} into {len(chunks)} chunks with params: "
+                f"chunk_preset_id={params.get('chunk_preset_id')}, "
                 f"chunk_size={params.get('chunk_size')}, "
                 f"chunk_overlap={params.get('chunk_overlap')}, "
                 f"qa_separator={params.get('qa_separator')}"
@@ -391,7 +396,12 @@ class MilvusKB(KnowledgeBase):
             try:
                 # 更新状态为处理中
                 async with self._metadata_lock:
-                    self.files_meta[file_id]["processing_params"] = params.copy()
+                    resolved_params = resolve_chunk_processing_params(
+                        kb_additional_params=self.databases_meta.get(db_id, {}).get("metadata"),
+                        file_processing_params=self.files_meta[file_id].get("processing_params"),
+                        request_params=params,
+                    )
+                    self.files_meta[file_id]["processing_params"] = resolved_params
                     self.files_meta[file_id]["status"] = "processing"
                     await self._persist_file(file_id)
 
@@ -404,7 +414,7 @@ class MilvusKB(KnowledgeBase):
                 await self.delete_file_chunks_only(db_id, file_id)
 
                 # 重新生成 chunks
-                chunks = self._split_text_into_chunks(markdown_content, file_id, filename, params)
+                chunks = self._split_text_into_chunks(markdown_content, file_id, filename, resolved_params)
                 logger.info(f"Split {filename} into {len(chunks)} chunks")
 
                 if chunks:

@@ -30,6 +30,7 @@ class EmbedModelInfo(BaseModel):
     base_url: str = Field(..., description="API 基础 URL")
     api_key: str = Field(..., description="API Key 或环境变量名")
     model_id: str | None = Field(None, description="可选的模型 ID")
+    batch_size: int = Field(40, description="批量向量化大小")
 
 
 class RerankerInfo(BaseModel):
@@ -203,6 +204,7 @@ DEFAULT_EMBED_MODELS: dict[str, EmbedModelInfo] = {
         dimension=1024,
         base_url="https://dashscope.aliyuncs.com/compatible-mode/v1/embeddings",
         api_key="DASHSCOPE_API_KEY",
+        batch_size=10,
     ),
 }
 
