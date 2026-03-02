@@ -104,12 +104,11 @@
                           </div>
                         </div>
                         <div class="tree-content">
-                          <a-tree
+                          <FileTreeComponent
+                            v-model:selectedKeys="selectedTreeKeys"
+                            v-model:expandedKeys="expandedKeys"
                             :tree-data="treeData"
-                            :selected-keys="selectedTreeKeys"
-                            default-expand-all
                             @select="handleTreeSelect"
-                            block-node
                           />
                         </div>
                       </div>
@@ -216,6 +215,7 @@ import {
 } from 'lucide-vue-next'
 import { skillApi } from '@/apis/skill_api'
 import HeaderComponent from '@/components/HeaderComponent.vue'
+import FileTreeComponent from '@/components/FileTreeComponent.vue'
 
 dayjs.extend(relativeTime)
 dayjs.locale('zh-cn')
@@ -232,6 +232,7 @@ const skills = ref([])
 const currentSkill = ref(null)
 const treeData = ref([])
 const selectedTreeKeys = ref([])
+const expandedKeys = ref([])
 const selectedPath = ref('')
 const selectedIsDir = ref(false)
 const fileContent = ref('')
@@ -268,8 +269,22 @@ const resetFileState = () => {
   selectedPath.value = ''
   selectedIsDir.value = false
   selectedTreeKeys.value = []
+  expandedKeys.value = []
   fileContent.value = ''
   originalFileContent.value = ''
+}
+
+const expandAllKeys = (nodes) => {
+  let keys = []
+  nodes.forEach(node => {
+    if (node.is_dir) {
+      keys.push(node.key)
+      if (node.children) {
+        keys = keys.concat(expandAllKeys(node.children))
+      }
+    }
+  })
+  return keys
 }
 
 const fetchSkills = async () => {
@@ -277,7 +292,11 @@ const fetchSkills = async () => {
   try {
     const result = await skillApi.listSkills()
     skills.value = result?.data || []
-    if (currentSkill.value) {
+
+    // 默认选中第一个技能并加载 SKILL.md
+    if (!currentSkill.value && skills.value.length > 0) {
+      await selectSkill(skills.value[0])
+    } else if (currentSkill.value) {
       const latest = skills.value.find(i => i.slug === currentSkill.value.slug)
       if (latest) {
         currentSkill.value = latest
@@ -317,7 +336,9 @@ const reloadTree = async () => {
   loading.value = true
   try {
     const result = await skillApi.getSkillTree(currentSkill.value.slug)
-    treeData.value = normalizeTree(result?.data || [])
+    const normalized = normalizeTree(result?.data || [])
+    treeData.value = normalized
+    expandedKeys.value = expandAllKeys(normalized)
   } catch {
     message.error('加载目录树失败')
   } finally {
@@ -325,11 +346,30 @@ const reloadTree = async () => {
   }
 }
 
+const loadSkillFile = async (slug, path = 'SKILL.md') => {
+  try {
+    const fileResult = await skillApi.getSkillFile(slug, path)
+    const content = fileResult?.data?.content || ''
+    fileContent.value = content
+    originalFileContent.value = content
+    selectedPath.value = path
+    selectedIsDir.value = false
+    selectedTreeKeys.value = [path]
+  } catch {
+    // 文件不存在时忽略
+  }
+}
+
 const selectSkill = async (record) => {
   currentSkill.value = record
   syncDependencyFormFromSkill(record)
   resetFileState()
-  await reloadTree()
+
+  // 并行执行：加载树结构和获取 SKILL.md
+  const [treeResult] = await Promise.all([
+    reloadTree(),
+    loadSkillFile(record.slug)
+  ])
 }
 
 const handleTreeSelect = async (keys, info) => {
@@ -541,7 +581,7 @@ onMounted(fetchSkills)
 
     .search-input {
       :deep(.ant-input) {
-        height: 32px;
+        height: 24px;
       }
     }
   }
@@ -617,9 +657,9 @@ onMounted(fetchSkills)
   }
 
   .panel-top-bar {
-    padding: 12px 24px;
+    padding: 10px 16px 0 16px;
     box-sizing: border-box;
-    border-bottom: 1px solid @border-color;
+    // border-bottom: 1px solid @border-color;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -651,7 +691,7 @@ onMounted(fetchSkills)
 
     :deep(.ant-tabs-nav) {
       margin: 0;
-      padding: 0 24px;
+      padding: 0 16px;
       border-bottom: 1px solid @border-color;
       flex-shrink: 0;
       &::before { border-bottom: none; }
@@ -686,11 +726,11 @@ onMounted(fetchSkills)
     align-items: center;
     border-bottom: 1px solid @border-color;
     background-color: var(--gray-50);
-    .label { font-size: 11px; font-weight: 600; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.5px; }
+    .label { font-size: 11px; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.5px; }
     .tree-actions {
       display: flex; gap: 4px;
       button {
-        background: none; border: none; padding: 2px; cursor: pointer; color: var(--gray-400);
+        background: none; border: none; padding: 2px; cursor: pointer; color: var(--gray-500);
         display: flex; align-items: center;
         &:hover { color: var(--gray-900); }
       }
@@ -699,11 +739,6 @@ onMounted(fetchSkills)
 
   .tree-content {
     flex: 1; overflow-y: auto; padding: 8px;
-    :deep(.ant-tree) {
-      background: transparent;
-      .ant-tree-node-content-wrapper { border-radius: 4px; font-size: 13px; padding: 4px 8px; }
-      .ant-tree-node-selected { background-color: var(--gray-200) !important; font-weight: 500; }
-    }
   }
 }
 
@@ -731,24 +766,25 @@ onMounted(fetchSkills)
   }
 
   .editor-main {
-  flex: 1;
-  min-height: 0;
-  background-color: var(--gray-0);
-  display: flex;
-  flex-direction: column;
-}
+    flex: 1;
+    min-height: 0;
+    background-color: var(--gray-0);
+    display: flex;
+    flex-direction: column;
+  }
 
-.editor-main :deep(.ant-empty) {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
+  .editor-main :deep(.ant-empty) {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 
-.editor-main :deep(textarea) {
-  flex: 1;
-  min-height: 0;
-}
+  .editor-main :deep(textarea) {
+    flex: 1;
+    min-height: 0;
+  }
+
   .pure-editor {
     width: 100%; height: 100%; border: none; resize: none; padding: 20px;
     font-family: 'Fira Code', 'Monaco', monospace; font-size: 13px; line-height: 1.6;

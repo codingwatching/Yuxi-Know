@@ -55,44 +55,29 @@
       <div v-if="activeTab === 'files'" class="files-display">
         <div v-if="!fileCount" class="empty">暂无文件</div>
         <div v-else class="file-tree-container">
-          <a-tree
+          <FileTreeComponent
             v-model:expandedKeys="expandedKeys"
             :tree-data="fileTreeData"
-            :show-icon="true"
-            block-node
-            :show-line="false"
             @select="onFileSelect"
           >
-            <template #icon="{ data, expanded }">
-              <template v-if="data.isLeaf">
-                <component
-                  :is="getFileIcon(data.key)"
-                  :style="{ color: getFileIconColor(data.key), fontSize: '16px' }"
-                />
-              </template>
-              <template v-else>
-                <FolderOpen v-if="expanded" :size="18" class="folder-icon open" />
-                <Folder v-else :size="18" class="folder-icon" />
-              </template>
-            </template>
-            <template #title="{ data }">
-              <div class="tree-node-wrapper" @click="toggleFolder(data)">
-                <div class="tree-node-name" :title="data.title">
-                  <span class="name-start">{{ data.nameStart || data.title }}</span>
-                  <span class="name-end" v-if="data.nameEnd">{{ data.nameEnd }}</span>
-                </div>
-                <div v-if="data.isLeaf" class="node-actions" @click.stop>
-                  <button
-                    class="tree-action-btn tree-download-btn"
-                    @click.stop="downloadFile(data.fileData)"
-                    title="下载文件"
-                  >
-                    <Download :size="14" />
-                  </button>
-                </div>
+            <template #title="{ node }">
+              <div class="tree-node-name" :title="node.title">
+                <span class="name-start">{{ node.nameStart || node.title }}</span>
+                <span class="name-end" v-if="node.nameEnd">{{ node.nameEnd }}</span>
               </div>
             </template>
-          </a-tree>
+            <template #actions="{ node }">
+              <div v-if="node.isLeaf" class="node-actions-container">
+                <button
+                  class="tree-action-btn tree-download-btn"
+                  @click.stop="downloadFile(node.fileData)"
+                  title="下载文件"
+                >
+                  <Download :size="14" />
+                </button>
+              </div>
+            </template>
+          </FileTreeComponent>
         </div>
       </div>
     </div>
@@ -163,6 +148,7 @@ import { MdPreview } from 'md-editor-v3'
 import 'md-editor-v3/lib/preview.css'
 import { useThemeStore } from '@/stores/theme'
 import { getFileIcon, getFileIconColor, formatFileSize } from '@/utils/file_utils'
+import FileTreeComponent from '@/components/FileTreeComponent.vue'
 
 const props = defineProps({
   agentState: {
@@ -383,17 +369,6 @@ const truncateFilename = (name) => {
 }
 
 const fileTreeData = computed(() => buildTreeData(normalizedFiles.value))
-
-const toggleFolder = (data) => {
-  if (data.isLeaf) return
-  const key = data.key
-  const index = expandedKeys.value.indexOf(key)
-  if (index > -1) {
-    expandedKeys.value = expandedKeys.value.filter((k) => k !== key)
-  } else {
-    expandedKeys.value = [...expandedKeys.value, key]
-  }
-}
 
 const onFileSelect = (selectedKeys, { node }) => {
   if (node.isLeaf) {
@@ -945,15 +920,6 @@ const stopResize = () => {
   margin: 0 -4px;
 }
 
-.tree-node-wrapper {
-  display: flex;
-  align-items: center;
-  width: 100%;
-  height: 28px;
-  padding-right: 8px;
-  position: relative;
-}
-
 .tree-node-name {
   display: flex;
   align-items: center;
@@ -963,7 +929,6 @@ const stopResize = () => {
     -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-size: 14px;
   color: var(--gray-800);
-  line-height: 28px;
 }
 
 .name-start {
@@ -977,26 +942,14 @@ const stopResize = () => {
   white-space: nowrap;
 }
 
-.folder-icon {
-  color: #dcb67a;
-  fill: #dcb67a;
-  fill-opacity: 0.2;
-
-  &.open {
-    color: #dcb67a;
-  }
-}
-
-.node-actions {
+.node-actions-container {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-left: 4px;
-  gap: 2px;
+  gap: 4px;
 }
 
 .tree-action-btn {
-  display: none;
+  display: flex;
   align-items: center;
   justify-content: center;
   width: 24px;
@@ -1010,89 +963,6 @@ const stopResize = () => {
 
 .tree-download-btn:hover {
   color: var(--main-600);
-}
-
-.tree-delete-btn:hover {
-  color: var(--color-error-500);
-}
-
-/* Specific Ant Design Tree Overrides */
-.file-tree-container :deep(.ant-tree) {
-  font-family: inherit;
-  font-size: 14px;
-  overflow: hidden;
-
-  .ant-tree-treenode {
-    width: 100%;
-    padding: 0;
-  }
-
-  .ant-tree-node-content-wrapper {
-    display: flex;
-    align-items: center;
-    transition: none;
-    border-radius: 0;
-    padding: 0 8px 0 0;
-    line-height: 28px;
-    flex: 1;
-    position: relative;
-    padding: 0 6px;
-    border-radius: 6px;
-    gap: 6px;
-
-    &:hover {
-      background-color: var(--gray-50);
-
-      .tree-action-btn {
-        display: flex;
-      }
-    }
-
-    &.ant-tree-node-selected {
-      background-color: var(--gray-100);
-    }
-  }
-
-  /* Icon Vertical Alignment */
-  .ant-tree-iconEle {
-    line-height: 30px;
-    height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-  }
-
-  /* Ensure Title Fills Space */
-  .ant-tree-title {
-    flex: 1;
-    overflow: hidden;
-    min-width: 0;
-  }
-
-  /* Switcher (Arrow) */
-  .ant-tree-switcher {
-    width: 24px;
-    height: 30px;
-    line-height: 30px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    .ant-tree-switcher-icon {
-      font-size: 10px;
-      color: var(--gray-500);
-    }
-  }
-
-  .ant-tree-indent-unit {
-    width: 18px;
-  }
-
-  /* 隐藏文件夹展开/折叠箭头 */
-  .ant-tree-switcher {
-    display: none !important;
-  }
 }
 
 /* 附件列表专用样式 */

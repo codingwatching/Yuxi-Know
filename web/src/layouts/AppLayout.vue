@@ -107,12 +107,6 @@ const mainList = computed(() => {
       path: '/database',
       icon: LibraryBig,
       activeIcon: LibraryBig
-    },
-    {
-      name: 'Dashboard',
-      path: '/dashboard',
-      icon: BarChart3,
-      activeIcon: BarChart3
     }
   ]
 
@@ -124,6 +118,13 @@ const mainList = computed(() => {
       activeIcon: Folder
     })
   }
+
+  items.push({
+    name: 'Dashboard',
+    path: '/dashboard',
+    icon: BarChart3,
+    activeIcon: BarChart3
+  })
 
   return items
 })
