@@ -755,7 +755,7 @@ async def export_skill_zip(db: AsyncSession, slug: str) -> tuple[str, str]:
 
 async def delete_skill(db: AsyncSession, *, slug: str) -> None:
     repo = SkillRepository(db)
-    item = await repo.get_by_slug(slug)
+    item = await repo.get_by_slug(slug, for_update=True)
     if not item:
         raise ValueError(f"技能 '{slug}' 不存在")
 
@@ -775,6 +775,20 @@ async def delete_skill(db: AsyncSession, *, slug: str) -> None:
 
     if trash_dir and trash_dir.exists():
         shutil.rmtree(trash_dir, ignore_errors=True)
+
+
+async def delete_skills_batch(db: AsyncSession, *, slugs: list[str]) -> list[dict]:
+    """批量删除多个 skills（单技能独立的子事务与回滚）。"""
+    results = []
+    for slug in slugs:
+        try:
+            await delete_skill(db, slug=slug)
+            results.append({"slug": slug, "success": True})
+        except Exception as e:
+            if hasattr(db, "rollback"):
+                await db.rollback()
+            results.append({"slug": slug, "success": False, "error": str(e)})
+    return results
 
 
 async def init_builtin_skills(db: AsyncSession, *, created_by: str = "system") -> None:
