@@ -58,10 +58,10 @@ export const isHiddenToolCall = (toolCall) => HIDDEN_TOOL_CALL_IDS.includes(getT
 export const isValidToolCall = (toolCall) => {
   return Boolean(
     toolCall &&
-      (toolCall.id || toolCall.name || toolCall.function?.name) &&
-      (toolCall.args !== undefined ||
-        toolCall.function?.arguments !== undefined ||
-        toolCall.tool_call_result !== undefined)
+    (toolCall.id || toolCall.name || toolCall.function?.name) &&
+    (toolCall.args !== undefined ||
+      toolCall.function?.arguments !== undefined ||
+      toolCall.tool_call_result !== undefined)
   )
 }
 
@@ -76,15 +76,21 @@ export const parseToolCallArgs = (toolCall) => {
   }
 }
 
-export const enrichTaskToolCall = (toolCall, { subagentRunById, subagentRunByThreadId, subagentOptionBySlug } = {}) => {
+export const enrichTaskToolCall = (
+  toolCall,
+  { subagentRunById, subagentRunByThreadId, subagentOptionBySlug } = {}
+) => {
   if (getToolCallId(toolCall) !== 'task') return toolCall
 
   const args = parseToolCallArgs(toolCall)
   const subagentRun =
     (toolCall.id ? subagentRunById?.get?.(String(toolCall.id)) : null) ||
     (args.thread_id ? subagentRunByThreadId?.get?.(String(args.thread_id)) : null)
-  const subagentOption = args.subagent_type ? subagentOptionBySlug?.get?.(String(args.subagent_type)) : null
-  const displayLabel = subagentRun?.subagent_name || subagentOption?.name || subagentRun?.subagent_type || undefined
+  const subagentOption = args.subagent_type
+    ? subagentOptionBySlug?.get?.(String(args.subagent_type))
+    : null
+  const displayLabel =
+    subagentRun?.subagent_name || subagentOption?.name || subagentRun?.subagent_type || undefined
 
   return {
     ...toolCall,
@@ -105,6 +111,8 @@ export const normalizeToolCalls = (toolCalls, { includeHidden = false, mapToolCa
 }
 
 export const enrichTaskToolCalls = (toolCalls, options = {}) =>
-  normalizeToolCalls(toolCalls, { mapToolCall: (toolCall) => enrichTaskToolCall(toolCall, options) })
+  normalizeToolCalls(toolCalls, {
+    mapToolCall: (toolCall) => enrichTaskToolCall(toolCall, options)
+  })
 
 export const getToolIcon = (toolId) => TOOL_ICON_MAP[toolId] || null

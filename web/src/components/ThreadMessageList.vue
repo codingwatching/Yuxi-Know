@@ -34,10 +34,15 @@ const props = defineProps({
   }
 })
 
-const conversations = computed(() => MessageProcessor.convertServerHistoryToMessages(props.messages))
+const conversations = computed(() =>
+  MessageProcessor.convertServerHistoryToMessages(props.messages)
+)
 
 const getDisplayItems = (conv) =>
-  getConversationDisplayItems(conv, props.enrichToolCalls ? { enrichToolCalls: props.enrichToolCalls } : {})
+  getConversationDisplayItems(
+    conv,
+    props.enrichToolCalls ? { enrichToolCalls: props.enrichToolCalls } : {}
+  )
 </script>
 
 <style lang="less" scoped>

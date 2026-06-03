@@ -81,7 +81,10 @@
         </div>
       </div>
 
-      <div v-if="$slots.tags || (normalizedTags && normalizedTags.length > 0)" class="info-card-tags">
+      <div
+        v-if="$slots.tags || (normalizedTags && normalizedTags.length > 0)"
+        class="info-card-tags"
+      >
         <slot name="tags">
           <span
             v-for="(tag, idx) in normalizedTags"

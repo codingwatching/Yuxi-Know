@@ -29,6 +29,7 @@ from yuxi.utils.question_utils import (
     normalize_questions as _normalize_interrupt_questions,
 )
 
+
 def _build_state_files(attachments: list[dict]) -> dict:
     """将附件列表转换为 StateBackend 格式的 files 字典
 

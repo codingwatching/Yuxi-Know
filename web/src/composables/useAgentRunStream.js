@@ -171,7 +171,12 @@ export function useAgentRunStream({
     }
   }
 
-  const finalizeRunStream = (threadId, runId, touchedThreadIds, { delay = 200, scroll = false } = {}) => {
+  const finalizeRunStream = (
+    threadId,
+    runId,
+    touchedThreadIds,
+    { delay = 200, scroll = false } = {}
+  ) => {
     const ts = getThreadState(threadId)
     if (!ts || ts.activeRunId !== runId) return
     touchedThreadIds.forEach((id) => streamSmoother?.flushThread(id))
@@ -276,7 +281,11 @@ export function useAgentRunStream({
           })
           touchedThreadIds.add(routeThreadId)
           handleStreamChunk(
-            { ...payload.chunk, run_id: payload.chunk.run_id || data.run_id || runId, thread_id: routeThreadId },
+            {
+              ...payload.chunk,
+              run_id: payload.chunk.run_id || data.run_id || runId,
+              thread_id: routeThreadId
+            },
             routeThreadId
           )
         }
@@ -307,7 +316,10 @@ export function useAgentRunStream({
             scheduleRunReconnect(threadId, runId)
           }
         } catch (e) {
-          console.warn('Run SSE closed before terminal event; reconnecting after status check failed:', e)
+          console.warn(
+            'Run SSE closed before terminal event; reconnecting after status check failed:',
+            e
+          )
           scheduleRunReconnect(threadId, runId)
         }
       }

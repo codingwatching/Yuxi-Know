@@ -15,13 +15,13 @@ from langgraph.prebuilt.tool_node import ToolRuntime
 from langgraph.types import Command
 
 from yuxi.agents.context import build_agent_input_context
-from yuxi.utils.subagent_thread_utils import make_child_thread_id
 from yuxi.repositories.agent_repository import SUB_AGENT_BACKEND_ID, AgentRepository
 from yuxi.repositories.agent_run_repository import AgentRunRepository
 from yuxi.repositories.user_repository import UserRepository
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.storage.postgres.models_business import Agent
 from yuxi.utils.datetime_utils import utc_isoformat
+from yuxi.utils.subagent_thread_utils import make_child_thread_id
 
 _CHILD_STATE_INHERIT_KEYS: frozenset[str] = frozenset()
 _TERMINAL_RUN_STATUSES = {"completed", "failed", "cancelled", "interrupted"}
@@ -195,11 +195,7 @@ def _state_for_child(
     skills_thread_id: str,
     continuing: bool = False,
 ) -> dict[str, Any]:
-    state = (
-        {}
-        if continuing
-        else {key: runtime.state[key] for key in _CHILD_STATE_INHERIT_KEYS if key in runtime.state}
-    )
+    state = {} if continuing else {key: runtime.state[key] for key in _CHILD_STATE_INHERIT_KEYS if key in runtime.state}
     state.update(
         {
             "parent_thread_id": parent_thread_id,

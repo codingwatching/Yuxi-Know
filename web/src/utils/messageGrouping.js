@@ -7,17 +7,20 @@ const hasVisibleAssistantBody = (message) => {
   const { content, reasoningContent } = MessageProcessor.parseAssistantMessageBody(message)
   return Boolean(
     content ||
-      reasoningContent ||
-      message.error_type ||
-      message.extra_metadata?.error_type ||
-      message.isStoppedByUser
+    reasoningContent ||
+    message.error_type ||
+    message.extra_metadata?.error_type ||
+    message.isStoppedByUser
   )
 }
 
 const defaultEnrichToolCalls = (message) => enrichTaskToolCalls(message?.tool_calls)
 
 // 将 AI 消息拆成“正文块”和“工具块”，再跨消息合并相邻工具块。
-export const getConversationDisplayItems = (conv, { enrichToolCalls = defaultEnrichToolCalls } = {}) => {
+export const getConversationDisplayItems = (
+  conv,
+  { enrichToolCalls = defaultEnrichToolCalls } = {}
+) => {
   if (!Array.isArray(conv?.messages) || conv.messages.length === 0) return []
 
   const items = []

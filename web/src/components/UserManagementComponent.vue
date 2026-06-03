@@ -826,7 +826,6 @@ onMounted(async () => {
                   height: 100%;
                   object-fit: cover;
                 }
-
               }
 
               .user-info-content {

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 
-
 _CHILD_THREAD_ID_PREFIX = "subagent_"
 _CHILD_THREAD_ID_DIGEST_LENGTH = 64 - len(_CHILD_THREAD_ID_PREFIX)
 

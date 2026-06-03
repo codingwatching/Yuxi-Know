@@ -617,7 +617,6 @@ defineExpose({
   min-height: 0;
 }
 
-
 .agent-card-icon-image {
   display: block;
   width: 100%;

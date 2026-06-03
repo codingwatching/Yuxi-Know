@@ -15,7 +15,6 @@ from yuxi.agents.middlewares.knowledge_base import KnowledgeBaseMiddleware
 from yuxi.agents.middlewares.skills import SkillsMiddleware
 from yuxi.agents.toolkits.service import resolve_configured_runtime_tools
 
-
 _SUBAGENT_DISABLED_TOOLS = frozenset({"present_artifacts", "ask_user_question"})
 
 

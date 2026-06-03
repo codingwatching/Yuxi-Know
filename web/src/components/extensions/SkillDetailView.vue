@@ -402,7 +402,9 @@ const isBuiltinInstalledSkill = computed(() => {
 })
 const canManageCurrentSkill = computed(() => currentSkill.value?.can_manage !== false)
 const isReadOnlySkill = computed(() => isInstalledSkill.value && !canManageCurrentSkill.value)
-const canEditSkillFiles = computed(() => canManageCurrentSkill.value && !isBuiltinInstalledSkill.value)
+const canEditSkillFiles = computed(
+  () => canManageCurrentSkill.value && !isBuiltinInstalledSkill.value
+)
 const canEditSkillDependencies = computed(
   () => canManageCurrentSkill.value && !isBuiltinInstalledSkill.value
 )

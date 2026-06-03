@@ -141,7 +141,12 @@
                 {{ formatExtensionCardTitle(previewSkill.name) }}
               </div>
               <div class="skill-preview-meta">
-                <span>{{ sourceTypeLabel(previewSkill.sourceType || previewSkill.source_type) }} Skill</span>
+                <span
+                  >{{
+                    sourceTypeLabel(previewSkill.sourceType || previewSkill.source_type)
+                  }}
+                  Skill</span
+                >
                 <span v-if="previewSkill.enabled === false" class="skill-preview-disabled-tag">
                   已禁用
                 </span>
@@ -525,7 +530,17 @@
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { message, Modal } from 'ant-design-vue'
-import { RefreshCw, Upload, Computer, BookMarked, History, Trash2, Check, Plus, Minus } from 'lucide-vue-next'
+import {
+  RefreshCw,
+  Upload,
+  Computer,
+  BookMarked,
+  History,
+  Trash2,
+  Check,
+  Plus,
+  Minus
+} from 'lucide-vue-next'
 import { skillApi } from '@/apis/skill_api'
 import ExtensionCardGrid from './ExtensionCardGrid.vue'
 import InfoCard from '@/components/shared/InfoCard.vue'
@@ -601,7 +616,10 @@ const filteredDeletableSkills = computed(() =>
   )
 )
 const canDeletePreviewSkill = computed(
-  () => !!previewSkill.value && canManageSkill(previewSkill.value) && previewSkill.value.sourceType !== 'builtin'
+  () =>
+    !!previewSkill.value &&
+    canManageSkill(previewSkill.value) &&
+    previewSkill.value.sourceType !== 'builtin'
 )
 
 // 仓库拉取的技能列表过滤

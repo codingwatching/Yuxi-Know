@@ -1,5 +1,9 @@
 <template>
-  <BaseToolCall :tool-call="toolCall" :status="baseStatus" :force-show-result="Boolean(displayResult)">
+  <BaseToolCall
+    :tool-call="toolCall"
+    :status="baseStatus"
+    :force-show-result="Boolean(displayResult)"
+  >
     <template #header>
       <div class="sep-header">
         <span class="note">{{ subagentDisplayName }}</span>
@@ -67,9 +71,13 @@ const childThreadId = computed(
     (getSubagentThreadIdByToolCall ? getSubagentThreadIdByToolCall(props.toolCall.id) : '') ||
     ''
 )
-const hasToolResult = computed(() => Boolean(props.toolCall.tool_call_result || props.toolCall.result))
+const hasToolResult = computed(() =>
+  Boolean(props.toolCall.tool_call_result || props.toolCall.result)
+)
 // 是否为当前真正在执行的子智能体调用（同一子线程的多次 steer 中只有最后一个为活跃）。
-const isActiveRun = computed(() => Boolean(activeSubagentToolCallIds?.value?.has(String(props.toolCall.id))))
+const isActiveRun = computed(() =>
+  Boolean(activeSubagentToolCallIds?.value?.has(String(props.toolCall.id)))
+)
 const runStatus = computed(() => {
   if (props.toolCall.status === 'error') return 'failed'
   // ongoing 期间工具结果不流式：有结果说明是历史/已落库，按结果展示；
@@ -114,7 +122,9 @@ const shortDescription = computed(() => {
 const isRunning = computed(() => runStatus.value === 'running')
 
 const truncate = (text, limit = 50) => {
-  const value = String(text || '').replace(/\s+/g, ' ').trim()
+  const value = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim()
   if (!value) return ''
   return value.length > limit ? value.slice(0, limit) + '...' : value
 }
@@ -122,7 +132,8 @@ const truncate = (text, limit = 50) => {
 const formatToolCall = (toolCall) => {
   const name = toolCall?.name || toolCall?.function?.name || 'tool'
   const rawArgs = toolCall?.args ?? toolCall?.function?.arguments
-  const args = rawArgs && typeof rawArgs === 'object' ? JSON.stringify(rawArgs) : String(rawArgs ?? '')
+  const args =
+    rawArgs && typeof rawArgs === 'object' ? JSON.stringify(rawArgs) : String(rawArgs ?? '')
   return `Call(${name}): ${args}`
 }
 

@@ -32,8 +32,16 @@ const run = () => {
   }
 
   {
-    assert.throws(() => generatePixelAvatar(''), /requires an id/, 'Empty ID should be treated as invalid data')
-    assert.throws(() => generatePixelAvatar(null), /requires an id/, 'Null ID should be treated as invalid data')
+    assert.throws(
+      () => generatePixelAvatar(''),
+      /requires an id/,
+      'Empty ID should be treated as invalid data'
+    )
+    assert.throws(
+      () => generatePixelAvatar(null),
+      /requires an id/,
+      'Null ID should be treated as invalid data'
+    )
     console.log('T5 Missing ID fails: PASS')
   }
 

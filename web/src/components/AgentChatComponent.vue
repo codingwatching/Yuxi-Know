@@ -45,7 +45,10 @@
           <div class="chat-box">
             <template v-for="row in conversationRows" :key="row.key">
               <div v-if="row.type === 'conversation'" class="conv-box">
-                <template v-for="(displayItem, itemIndex) in row.displayItems" :key="displayItem.key">
+                <template
+                  v-for="(displayItem, itemIndex) in row.displayItems"
+                  :key="displayItem.key"
+                >
                   <AgentMessageComponent
                     v-if="displayItem.type === 'message'"
                     :message="displayItem.message"
@@ -547,7 +550,9 @@ const getArtifactMetaLabel = (path) => {
 
 const getSubagentRunName = (run) => {
   const subagentType = run?.subagent_type ? String(run.subagent_type) : ''
-  return run?.subagent_name || currentSubagentOptionBySlug.value.get(subagentType)?.name || '子智能体'
+  return (
+    run?.subagent_name || currentSubagentOptionBySlug.value.get(subagentType)?.name || '子智能体'
+  )
 }
 
 const getSubagentAgent = (run) => {
@@ -824,7 +829,9 @@ const currentThreadConfigNotice = computed(() => {
 const shouldSuppressRefsForApproval = () =>
   approvalState.showModal ||
   Boolean(
-    approvalState.threadId && chatState.currentThreadId === approvalState.threadId && isProcessing.value
+    approvalState.threadId &&
+    chatState.currentThreadId === approvalState.threadId &&
+    isProcessing.value
   )
 
 // 计算是否显示Refs组件的条件
@@ -911,7 +918,9 @@ const runningSubagentRunsFromStream = computed(() => {
   return ongoingTaskCalls.value
     .filter((call) => activeIds.has(call.id))
     .map((call) => {
-      const option = call.subagentType ? currentSubagentOptionBySlug.value.get(call.subagentType) : null
+      const option = call.subagentType
+        ? currentSubagentOptionBySlug.value.get(call.subagentType)
+        : null
       return {
         id: call.id,
         subagent_type: call.subagentType,

@@ -15,9 +15,9 @@ from langgraph.types import Command
 
 from yuxi import config as sys_config
 from yuxi.agents.context import BaseContext, resolve_agent_resource_options
-from yuxi.utils.subagent_thread_utils import make_child_thread_id
 from yuxi.storage.postgres.manager import pg_manager
 from yuxi.utils import logger
+from yuxi.utils.subagent_thread_utils import make_child_thread_id
 
 
 def _json_safe(value: Any) -> Any:
@@ -79,9 +79,7 @@ def _subagent_route_for_namespace(
     return None
 
 
-async def _collect_subagent_routes(
-    run, parent_thread_id: str, routes: dict[tuple[str, ...], dict[str, str]]
-) -> None:
+async def _collect_subagent_routes(run, parent_thread_id: str, routes: dict[tuple[str, ...], dict[str, str]]) -> None:
     subagents = getattr(run, "subagents", None)
     if subagents is None:
         return
