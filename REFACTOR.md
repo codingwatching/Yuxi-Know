@@ -30,11 +30,11 @@
 - [x] 子智能体的优化，参考 PR 的方案。
 - [x] 附件上传能够支持转换为 PDF，待办：查看 OCR 模型的状态，样式优化，保存的文件名不对
 - [x] 参考 PR，实现内置 Dashscope 的 Embedding 和 rerank 的方法
-- [ ] 优化知识库的 API 接口设计，使用 /{db_id}/xxx 的形式，整合 mindmap / eval 接口
+- [x] 优化知识库的 API 接口设计，使用 /{db_id}/xxx 的形式，整合 mindmap / eval 接口
 - [x] 前端新增基于 ID 的随机像素头像生成机制（类似 GitHub 方块头像），用于替代默认图片
 - [x] 子智能体右上角功能增强：任务按钮常驻，展开后展示已激活子智能体、附件、state 等信息
-- [ ] 流式输出混排修复：ongoing 流式返回时按 thread ID 区分主/子智能体内容，子智能体内容单独可视化渲染
-- [ ] 子智能体中间过程可查看：流式结束后，通过子智能体自身 thread ID 获取并渲染中间调用过程
+- [x] 流式输出混排修复：ongoing 流式返回时按 thread ID 区分主/子智能体内容，子智能体内容单独可视化渲染
+- [x] 子智能体中间过程可查看：流式结束后，通过子智能体自身 thread ID 获取并渲染中间调用过程
 - [x] allow multi-hop qa generate
 - [x] 在工作区的文件编辑的时候，保存和取消的按钮应该是悬浮在编辑框的右上角，而不是在 header 上面
 - [x] default enable all build in tools / kbs / skills / mcps / subagents
@@ -44,7 +44,7 @@
 - [ ] 考虑如何将知识库更好的挂载到沙盒，是不是可以使用一个别的后端，但是使用别的后端是否还能读取到数据？应该不能
 - [x] 智能体体系改进。改进子智能体，我觉得子智能体并不是一个子级的智能体，应该是
 - [ ] RAG 中的文件的 metadata 包含那些内容？然后 Find 和 Read 的时候要支持展示
-- [ ] 检查前端的这些 store 的使用，是否有需要调整优化收敛的地方
+- [x] 检查前端的这些 store 的使用，是否有需要调整优化收敛的地方
 - [x] parser 从plugins 移动到 knowledge 里面，guard 移动到services 里面
 - [x] neo4j 相关的服务，可以移动到 storage 里面
 - [ ] 点开对话的时候要能够自动定位到尾部，而不是最开始。

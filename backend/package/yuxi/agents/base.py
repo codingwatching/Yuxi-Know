@@ -7,9 +7,11 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
+from langchain_core.messages import ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver, aiosqlite
 from langgraph.graph.state import CompiledStateGraph
+from langgraph.types import Command
 
 from yuxi import config as sys_config
 from yuxi.agents.context import BaseContext, resolve_agent_resource_options
@@ -28,6 +30,29 @@ def _json_safe(value: Any) -> Any:
     if hasattr(value, "model_dump"):
         return _json_safe(value.model_dump())
     return str(value)
+
+
+def _normalize_tool_event_data(data: Any) -> Any:
+    """规整 tools 流事件：write_todos / task 等返回 Command 的工具，其 tool-finished
+    output 是 Command 对象，_json_safe 只能退化成 repr 字符串，前端无法关联结果。
+    这里从 Command.update["messages"] 取出真正的 ToolMessage，使其与普通工具一致。"""
+    if not isinstance(data, dict) or data.get("event") != "tool-finished":
+        return data
+    output = data.get("output")
+    if not isinstance(output, Command):
+        return data
+    update = output.update if isinstance(output.update, dict) else {}
+    messages = update.get("messages")
+    if not isinstance(messages, list):
+        return data
+    tool_call_id = data.get("tool_call_id")
+    tool_message = next(
+        (m for m in messages if isinstance(m, ToolMessage) and m.tool_call_id == tool_call_id),
+        next((m for m in messages if isinstance(m, ToolMessage)), None),
+    )
+    if tool_message is None:
+        return data
+    return {**data, "output": tool_message}
 
 
 def _metadata_thread_id(value: Any) -> str | None:
@@ -235,6 +260,8 @@ class BaseAgent:
                 elif method == "values" and not namespace:
                     yield "values", data
                 elif method in {"tasks", "tools", "lifecycle"}:
+                    if method == "tools":
+                        data = _normalize_tool_event_data(data)
                     event_payload = {
                         "method": method,
                         "namespace": namespace,

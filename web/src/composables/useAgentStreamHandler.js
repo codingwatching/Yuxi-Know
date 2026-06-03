@@ -59,6 +59,23 @@ const loadingMessageChunk = (chunk) => {
   return msg || null
 }
 
+// 工具结果不走 messages 流，而是以 method=tools 的 stream_event 事件返回（tool-started/tool-finished）。
+// 取出 tool-finished 的 output（一条 ToolMessage 字典），交给 msgChunks 与 AI 消息按 tool_call_id 关联。
+const toolFinishedMessage = (chunk) => {
+  const streamEvent = chunk?.event
+  if (!streamEvent || streamEvent.method !== 'tools') return null
+
+  const data = streamEvent.data
+  if (!data || data.event !== 'tool-finished') return null
+
+  const output = data.output
+  if (!output || typeof output !== 'object') return null
+
+  const id = output.id || output.tool_call_id || data.tool_call_id
+  if (!id) return null
+  return { ...output, type: 'tool', id }
+}
+
 export function useAgentStreamHandler({
   getThreadState,
   processApprovalInStream,
@@ -115,6 +132,20 @@ export function useAgentStreamHandler({
               }
               threadState.onGoingConv.msgChunks[messageChunk.id].push(messageChunk)
             }
+          }
+        }
+        return false
+
+      case 'stream_event':
+        {
+          // 工具结果需立即落地（不经平滑层），写入 msgChunks 后由 convertToolResultToMessages
+          // 按 tool_call_id 关联到对应 AI 消息的 tool_call，驱动其完成态。
+          const toolMessage = toolFinishedMessage(chunk)
+          if (toolMessage) {
+            if (!threadState.onGoingConv.msgChunks[toolMessage.id]) {
+              threadState.onGoingConv.msgChunks[toolMessage.id] = []
+            }
+            threadState.onGoingConv.msgChunks[toolMessage.id].push(toolMessage)
           }
         }
         return false
