@@ -930,8 +930,8 @@ defineExpose({
   background: transparent;
   color: var(--gray-900);
   caret-color: var(--main-700);
-  font-size: 18px;
-  font-weight: 700;
+  font-size: 16px;
+  font-weight: 600;
   line-height: 1.35;
   transition:
     border-color 0.16s ease,
@@ -957,6 +957,7 @@ defineExpose({
 
 .agent-inline-slug,
 .agent-inline-slug-input {
+  padding: 1px 4px;
   width: 220px;
   max-width: 100%;
   overflow: hidden;
@@ -967,9 +968,8 @@ defineExpose({
 }
 
 .agent-inline-slug-input {
-  padding: 1px 4px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: 2px;
   background: transparent;
 
   &::placeholder {
