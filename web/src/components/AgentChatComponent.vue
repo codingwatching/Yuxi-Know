@@ -220,127 +220,215 @@
             </div>
 
             <div class="state-panel-body">
-              <section class="state-section">
-                <div class="state-section-header">
-                  <span class="state-section-title">待办</span>
+              <section
+                class="state-section"
+                :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
+              >
+                <button
+                  type="button"
+                  class="state-section-header"
+                  :aria-expanded="isStateSectionExpanded('todos')"
+                  aria-controls="state-section-todos"
+                  @click="toggleStateSection('todos')"
+                >
+                  <span class="state-section-label">
+                    <span class="state-section-title">待办</span>
+                    <ChevronDown
+                      :size="15"
+                      class="state-section-chevron"
+                      :class="{ 'is-collapsed': !isStateSectionExpanded('todos') }"
+                    />
+                  </span>
                   <span v-if="totalTodoCount" class="state-section-meta">
                     {{ completedTodoCount }}/{{ totalTodoCount }} · {{ todoProgress }}%
                   </span>
-                </div>
-                <div v-if="currentTodos.length" class="todo-panel-list">
-                  <div
-                    v-for="(todo, index) in currentTodos"
-                    :key="`${todo.content}-${index}`"
-                    class="todo-item"
-                  >
-                    <div class="todo-item-icon" :class="todo.status || 'unknown'">
-                      <CheckCircleOutlined v-if="todo.status === 'completed'" />
-                      <SyncOutlined v-else-if="todo.status === 'in_progress'" spin />
-                      <ClockCircleOutlined v-else-if="todo.status === 'pending'" />
-                      <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" />
-                      <QuestionCircleOutlined v-else />
-                    </div>
-                    <div class="todo-item-body">
-                      <span class="todo-item-text">{{ todo.content }}</span>
+                </button>
+                <div
+                  v-show="isStateSectionExpanded('todos')"
+                  id="state-section-todos"
+                  class="state-section-content"
+                >
+                  <div v-if="currentTodos.length" class="todo-panel-list">
+                    <div
+                      v-for="(todo, index) in currentTodos"
+                      :key="`${todo.content}-${index}`"
+                      class="todo-item"
+                    >
+                      <div class="todo-item-icon" :class="todo.status || 'unknown'">
+                        <CheckCircleOutlined v-if="todo.status === 'completed'" />
+                        <SyncOutlined v-else-if="todo.status === 'in_progress'" spin />
+                        <ClockCircleOutlined v-else-if="todo.status === 'pending'" />
+                        <CloseCircleOutlined v-else-if="todo.status === 'cancelled'" />
+                        <QuestionCircleOutlined v-else />
+                      </div>
+                      <div class="todo-item-body">
+                        <span class="todo-item-text">{{ todo.content }}</span>
+                      </div>
                     </div>
                   </div>
+                  <div v-else class="state-section-empty">暂无待办</div>
                 </div>
-                <div v-else class="state-section-empty">暂无待办</div>
               </section>
 
-              <section class="state-section">
-                <div class="state-section-header">
-                  <span class="state-section-title">附件/文件</span>
+              <section
+                class="state-section"
+                :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
+              >
+                <button
+                  type="button"
+                  class="state-section-header"
+                  :aria-expanded="isStateSectionExpanded('files')"
+                  aria-controls="state-section-files"
+                  @click="toggleStateSection('files')"
+                >
+                  <span class="state-section-label">
+                    <span class="state-section-title">附件/文件</span>
+                    <ChevronDown
+                      :size="15"
+                      class="state-section-chevron"
+                      :class="{ 'is-collapsed': !isStateSectionExpanded('files') }"
+                    />
+                  </span>
                   <span class="state-section-meta">{{ currentStateFiles.length }}</span>
-                </div>
-                <div v-if="currentStateFiles.length" class="state-list">
-                  <div v-for="file in currentStateFiles" :key="file.key" class="state-list-item">
-                    <FileTypeIcon
-                      :name="file.name || file.path"
-                      :size="18"
-                      class="state-list-item-icon"
-                    />
-                    <div class="state-list-item-body">
-                      <div class="state-list-item-title">{{ file.name }}</div>
-                      <div class="state-list-item-meta">{{ file.meta || file.path }}</div>
+                </button>
+                <div
+                  v-show="isStateSectionExpanded('files')"
+                  id="state-section-files"
+                  class="state-section-content"
+                >
+                  <div v-if="currentStateFiles.length" class="state-list">
+                    <div v-for="file in currentStateFiles" :key="file.key" class="state-list-item">
+                      <FileTypeIcon
+                        :name="file.name || file.path"
+                        :size="18"
+                        class="state-list-item-icon"
+                      />
+                      <div class="state-list-item-body">
+                        <div class="state-list-item-title">{{ file.name }}</div>
+                        <div class="state-list-item-meta">{{ file.meta || file.path }}</div>
+                      </div>
                     </div>
                   </div>
+                  <div v-else class="state-section-empty">暂无附件或文件</div>
                 </div>
-                <div v-else class="state-section-empty">暂无附件或文件</div>
               </section>
 
-              <section class="state-section">
-                <div class="state-section-header">
-                  <span class="state-section-title">产物</span>
+              <section
+                class="state-section"
+                :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
+              >
+                <button
+                  type="button"
+                  class="state-section-header"
+                  :aria-expanded="isStateSectionExpanded('artifacts')"
+                  aria-controls="state-section-artifacts"
+                  @click="toggleStateSection('artifacts')"
+                >
+                  <span class="state-section-label">
+                    <span class="state-section-title">产物</span>
+                    <ChevronDown
+                      :size="15"
+                      class="state-section-chevron"
+                      :class="{ 'is-collapsed': !isStateSectionExpanded('artifacts') }"
+                    />
+                  </span>
                   <span class="state-section-meta">{{ currentArtifactFiles.length }}</span>
+                </button>
+                <div
+                  v-show="isStateSectionExpanded('artifacts')"
+                  id="state-section-artifacts"
+                  class="state-section-content"
+                >
+                  <div v-if="currentArtifactFiles.length" class="state-list">
+                    <button
+                      v-for="file in currentArtifactFiles"
+                      :key="file.path"
+                      type="button"
+                      class="state-list-item state-list-item--button"
+                      :title="`打开 ${file.name}`"
+                      @click="openPanelPreview(file)"
+                    >
+                      <FileTypeIcon
+                        :name="file.name || file.path"
+                        :size="18"
+                        class="state-list-item-icon"
+                      />
+                      <div class="state-list-item-body">
+                        <div class="state-list-item-title">{{ file.name }}</div>
+                        <div class="state-list-item-meta">{{ file.meta }}</div>
+                      </div>
+                    </button>
+                  </div>
+                  <div v-else class="state-section-empty">暂无产物</div>
                 </div>
-                <div v-if="currentArtifactFiles.length" class="state-list">
-                  <button
-                    v-for="file in currentArtifactFiles"
-                    :key="file.path"
-                    type="button"
-                    class="state-list-item state-list-item--button"
-                    :title="`打开 ${file.name}`"
-                    @click="openPanelPreview(file)"
-                  >
-                    <FileTypeIcon
-                      :name="file.name || file.path"
-                      :size="18"
-                      class="state-list-item-icon"
-                    />
-                    <div class="state-list-item-body">
-                      <div class="state-list-item-title">{{ file.name }}</div>
-                      <div class="state-list-item-meta">{{ file.meta }}</div>
-                    </div>
-                  </button>
-                </div>
-                <div v-else class="state-section-empty">暂无产物</div>
               </section>
 
-              <section class="state-section">
-                <div class="state-section-header">
-                  <span class="state-section-title">子智能体</span>
-                  <span class="state-section-meta">{{ displaySubagentRuns.length }}</span>
-                </div>
-                <div v-if="displaySubagentRuns.length" class="state-list">
-                  <div
-                    v-for="(run, index) in displaySubagentRuns"
-                    :key="run.id || `${run.subagent_type || 'subagent'}-${index}`"
-                    class="state-list-item"
-                    :class="{ 'is-clickable': run.child_thread_id }"
-                    @click="run.child_thread_id && openSubagentThread(run)"
-                  >
-                    <img
-                      v-if="getSubagentIconSrc(run)"
-                      class="state-subagent-icon"
-                      :src="getSubagentIconSrc(run)"
-                      :alt="`${getSubagentRunName(run)}图标`"
+              <section
+                class="state-section"
+                :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
+              >
+                <button
+                  type="button"
+                  class="state-section-header"
+                  :aria-expanded="isStateSectionExpanded('subagents')"
+                  aria-controls="state-section-subagents"
+                  @click="toggleStateSection('subagents')"
+                >
+                  <span class="state-section-label">
+                    <span class="state-section-title">子智能体</span>
+                    <ChevronDown
+                      :size="15"
+                      class="state-section-chevron"
+                      :class="{ 'is-collapsed': !isStateSectionExpanded('subagents') }"
                     />
-                    <span v-else class="state-subagent-icon" aria-hidden="true"></span>
-                    <div class="state-list-item-body">
-                      <div class="state-list-item-title state-subagent-title">
-                        <span>{{ getSubagentRunName(run) }}</span>
-                        <CheckCircleOutlined
-                          v-if="run.status === 'completed'"
-                          class="state-subagent-status-icon state-subagent-completed-icon"
-                        />
-                        <CloseCircleOutlined
-                          v-else-if="run.status === 'failed'"
-                          class="state-subagent-status-icon state-subagent-failed-icon"
-                        />
-                        <SyncOutlined
-                          v-else-if="run.status === 'running'"
-                          spin
-                          class="state-subagent-status-icon state-subagent-running-icon"
-                        />
-                      </div>
-                      <div class="state-list-item-meta">
-                        {{ run.description || getSubagentRunMeta(run) }}
+                  </span>
+                  <span class="state-section-meta">{{ displaySubagentRuns.length }}</span>
+                </button>
+                <div
+                  v-show="isStateSectionExpanded('subagents')"
+                  id="state-section-subagents"
+                  class="state-section-content"
+                >
+                  <div v-if="displaySubagentRuns.length" class="state-list">
+                    <div
+                      v-for="(run, index) in displaySubagentRuns"
+                      :key="run.id || `${run.subagent_type || 'subagent'}-${index}`"
+                      class="state-list-item"
+                      :class="{ 'is-clickable': run.child_thread_id }"
+                      @click="run.child_thread_id && openSubagentThread(run)"
+                    >
+                      <img
+                        v-if="getSubagentIconSrc(run)"
+                        class="state-subagent-icon"
+                        :src="getSubagentIconSrc(run)"
+                        :alt="`${getSubagentRunName(run)}图标`"
+                      />
+                      <span v-else class="state-subagent-icon" aria-hidden="true"></span>
+                      <div class="state-list-item-body">
+                        <div class="state-list-item-title state-subagent-title">
+                          <span>{{ getSubagentRunName(run) }}</span>
+                          <CheckCircleOutlined
+                            v-if="run.status === 'completed'"
+                            class="state-subagent-status-icon state-subagent-completed-icon"
+                          />
+                          <CloseCircleOutlined
+                            v-else-if="run.status === 'failed'"
+                            class="state-subagent-status-icon state-subagent-failed-icon"
+                          />
+                          <SyncOutlined
+                            v-else-if="run.status === 'running'"
+                            spin
+                            class="state-subagent-status-icon state-subagent-running-icon"
+                          />
+                        </div>
+                        <div class="state-list-item-meta">
+                          {{ run.description || getSubagentRunMeta(run) }}
+                        </div>
                       </div>
                     </div>
                   </div>
+                  <div v-else class="state-section-empty">暂无子智能体运行</div>
                 </div>
-                <div v-else class="state-section-empty">暂无子智能体运行</div>
               </section>
             </div>
           </div>
@@ -351,7 +439,8 @@
     <SubagentThreadModal
       v-model:open="subagentThreadModal.open"
       :child-thread-id="subagentThreadModal.childThreadId"
-      :subagent-name="subagentThreadModal.subagentName"
+      :subagent-name="activeSubagentThreadName"
+      :subagent-avatar="activeSubagentThreadAvatar"
     />
   </div>
 </template>
@@ -370,7 +459,7 @@ import {
   onDeactivated
 } from 'vue'
 import { message } from 'ant-design-vue'
-import { RefreshCw, SquareCheck } from 'lucide-vue-next'
+import { ChevronDown, RefreshCw, SquareCheck } from 'lucide-vue-next'
 import { formatFileSize } from '@/utils/file_utils'
 import FileTypeIcon from '@/components/common/FileTypeIcon.vue'
 import { generatePixelAvatar } from '@/utils/pixelAvatar'
@@ -480,6 +569,12 @@ const threadFilesMap = ref({})
 const threadAttachmentsMap = ref({})
 const attachmentUploadModalOpen = ref(false)
 const isRefreshingState = ref(false)
+const collapsedStateSections = reactive({
+  todos: false,
+  files: false,
+  artifacts: false,
+  subagents: false
+})
 const threadConfigNoticeMap = ref({})
 const threadPendingConfigNoticeMap = ref({})
 const threadConfigSnapshotMap = ref({})
@@ -787,13 +882,19 @@ const currentSubagentOptionBySlug = computed(() => {
 const subagentThreadModal = reactive({
   open: false,
   childThreadId: '',
-  subagentName: ''
+  subagentName: '',
+  subagentAvatar: ''
 })
 const openSubagentThread = (run) => {
   if (!run?.child_thread_id) return
   subagentThreadModal.childThreadId = String(run.child_thread_id)
   subagentThreadModal.subagentName = getSubagentRunName(run)
+  subagentThreadModal.subagentAvatar = getSubagentIconSrc(run)
   subagentThreadModal.open = true
+}
+const isStateSectionExpanded = (key) => !collapsedStateSections[key]
+const toggleStateSection = (key) => {
+  collapsedStateSections[key] = !collapsedStateSections[key]
 }
 const currentStateFiles = computed(() => {
   const files = []
@@ -987,6 +1088,25 @@ const displaySubagentRuns = computed(() => {
   })
   return merged
 })
+
+const activeSubagentThreadRun = computed(() => {
+  if (!subagentThreadModal.childThreadId) return null
+  return (
+    displaySubagentRuns.value.find(
+      (run) => String(run?.child_thread_id || '') === subagentThreadModal.childThreadId
+    ) || null
+  )
+})
+const activeSubagentThreadName = computed(() =>
+  activeSubagentThreadRun.value
+    ? getSubagentRunName(activeSubagentThreadRun.value)
+    : subagentThreadModal.subagentName
+)
+const activeSubagentThreadAvatar = computed(() =>
+  activeSubagentThreadRun.value
+    ? getSubagentIconSrc(activeSubagentThreadRun.value) || subagentThreadModal.subagentAvatar
+    : subagentThreadModal.subagentAvatar
+)
 
 // 首次运行的子智能体：前端按后端同样的哈希推算 child_thread_id，缓存到映射里供面板/轨迹定位。
 watch(
@@ -2858,19 +2978,67 @@ watch(currentChatId, (threadId, oldThreadId) => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+
+  &.is-collapsed {
+    gap: 0;
+  }
 }
 
 .state-section-header {
+  width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding: 2px 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+
+  &:hover {
+    .state-section-title,
+    .state-section-chevron {
+      color: var(--gray-900);
+    }
+  }
+
+  &:focus-visible {
+    outline: 2px solid var(--main-200);
+    outline-offset: 2px;
+  }
+}
+
+.state-section-label {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .state-section-title {
   font-size: 13px;
   font-weight: 600;
   color: var(--gray-800);
+}
+
+.state-section-chevron {
+  flex-shrink: 0;
+  color: var(--gray-500);
+  transition:
+    transform 0.18s ease,
+    color 0.18s ease;
+
+  &.is-collapsed {
+    transform: rotate(-90deg);
+  }
+}
+
+.state-section-content {
+  min-width: 0;
 }
 
 .state-section-empty {

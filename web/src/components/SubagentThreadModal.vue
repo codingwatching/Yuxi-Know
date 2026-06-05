@@ -1,12 +1,23 @@
 <template>
   <a-modal
     :open="open"
-    :title="subagentName || '子智能体'"
     :footer="null"
     :width="800"
     :destroyOnClose="true"
     @cancel="$emit('update:open', false)"
   >
+    <template #title>
+      <div class="subagent-thread-modal-title">
+        <img
+          v-if="subagentAvatar"
+          class="subagent-thread-modal-avatar"
+          :src="subagentAvatar"
+          :alt="`${modalTitleName} icon`"
+        />
+        <span v-else class="subagent-thread-modal-avatar" aria-hidden="true"></span>
+        <span class="subagent-thread-modal-name">{{ modalTitleName }}</span>
+      </div>
+    </template>
     <div class="subagent-thread-modal-body">
       <div v-if="loading" class="subagent-thread-modal-state">正在加载子智能体消息...</div>
       <div v-else-if="error" class="subagent-thread-modal-state is-error">{{ error }}</div>
@@ -16,7 +27,7 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { agentApi } from '@/apis'
 import { MessageProcessor } from '@/utils/messageProcessor'
 import ThreadMessageList from '@/components/ThreadMessageList.vue'
@@ -33,6 +44,10 @@ const props = defineProps({
   subagentName: {
     type: String,
     default: ''
+  },
+  subagentAvatar: {
+    type: String,
+    default: ''
   }
 })
 
@@ -41,6 +56,8 @@ defineEmits(['update:open'])
 const loading = ref(false)
 const error = ref('')
 const messages = ref([])
+
+const modalTitleName = computed(() => props.subagentName || '子智能体')
 
 // LangChain 内容块数组 → 纯文本（仅保留 text 块）
 const flattenContent = (content) => {
@@ -86,6 +103,31 @@ watch(
 </script>
 
 <style lang="less" scoped>
+.subagent-thread-modal-title {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-right: 24px;
+}
+
+.subagent-thread-modal-avatar {
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border: 1px solid var(--gray-150);
+  border-radius: 7px;
+  background: var(--gray-0);
+  object-fit: cover;
+}
+
+.subagent-thread-modal-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .subagent-thread-modal-body {
   max-height: 70vh;
   overflow-y: auto;
