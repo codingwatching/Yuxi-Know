@@ -1,4 +1,8 @@
+from types import SimpleNamespace
+
+import httpx
 import pytest
+import requests
 
 from yuxi.agents.models import load_chat_model
 from yuxi.models.chat import select_model
@@ -18,6 +22,32 @@ def _model_info(model_type: str) -> ModelInfo:
         provider_type="openai",
         dimension=1024 if model_type == "embedding" else None,
     )
+
+
+def _capture_embed_warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    warnings = []
+    monkeypatch.setattr(
+        "yuxi.models.embed.logger",
+        SimpleNamespace(
+            warning=warnings.append,
+            error=lambda *_args, **_kwargs: None,
+            info=lambda *_args, **_kwargs: None,
+        ),
+    )
+    return warnings
+
+
+def _requests_embedding_response(status_code: int, content: bytes | None = None) -> requests.Response:
+    response = requests.Response()
+    response.status_code = status_code
+    response.url = "https://example.com/v1/embeddings"
+    response._content = content or b'{"error":"temporary error"}'
+    return response
+
+
+def _httpx_embedding_response(status_code: int, content: str | None = None) -> httpx.Response:
+    request = httpx.Request("POST", "https://example.com/v1/embeddings")
+    return httpx.Response(status_code, request=request, text=content or '{"error":"temporary error"}')
 
 
 @pytest.mark.parametrize(
@@ -79,6 +109,156 @@ async def test_embedding_connection_reports_dimension_mismatch(monkeypatch):
     monkeypatch.setattr(model, "aencode", fake_aencode)
 
     assert await model.test_connection() == (False, "Embedding 维度不一致：配置 4，实际 3")
+
+
+def test_embedding_sync_400_logs_warning(monkeypatch):
+    warnings = _capture_embed_warnings(monkeypatch)
+    model = OtherEmbedding(
+        model="namespace/embedding-model",
+        base_url="https://example.com/v1/embeddings",
+        api_key="test-key",
+    )
+    response = _requests_embedding_response(400, b'{"error":"bad embedding input"}')
+    calls = []
+
+    def fake_post(*_args, **_kwargs):
+        calls.append(1)
+        return response
+
+    monkeypatch.setattr("yuxi.models.embed.requests.post", fake_post)
+
+    with pytest.raises(ValueError, match="400 Client Error"):
+        model.encode(["hello", "test"])
+
+    assert len(calls) == 1
+    assert len(warnings) == 1
+    warning = warnings[0]
+    assert "400 Bad Request" in warning
+    assert "model=namespace/embedding-model" in warning
+    assert "input_count=2" in warning
+    assert "input_lengths=[5, 4]" in warning
+    assert "bad embedding input" in warning
+
+
+def test_embedding_sync_429_retries_ten_times_before_success(monkeypatch):
+    warnings = _capture_embed_warnings(monkeypatch)
+    sleeps = []
+    monkeypatch.setattr("yuxi.models.embed.time.sleep", sleeps.append)
+
+    model = OtherEmbedding(
+        model="namespace/embedding-model",
+        base_url="https://example.com/v1/embeddings",
+        api_key="test-key",
+    )
+    success = _requests_embedding_response(200, b'{"data":[{"embedding":[0.1,0.2]}]}')
+    responses = [_requests_embedding_response(429) for _ in range(10)] + [success]
+
+    monkeypatch.setattr("yuxi.models.embed.requests.post", lambda *_args, **_kwargs: responses.pop(0))
+
+    assert model.encode(["hello"]) == [[0.1, 0.2]]
+    assert len(sleeps) == 10
+    assert sleeps == [1.0, 2.0, 4.0, 8.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    assert len(warnings) == 10
+    assert "status=429" in warnings[-1]
+    assert "retry=10/10" in warnings[-1]
+
+
+def test_embedding_sync_5xx_uses_short_retry_budget(monkeypatch):
+    warnings = _capture_embed_warnings(monkeypatch)
+    sleeps = []
+    calls = []
+    monkeypatch.setattr("yuxi.models.embed.time.sleep", sleeps.append)
+
+    model = OtherEmbedding(
+        model="namespace/embedding-model",
+        base_url="https://example.com/v1/embeddings",
+        api_key="test-key",
+    )
+
+    def fake_post(*_args, **_kwargs):
+        calls.append(1)
+        return _requests_embedding_response(503)
+
+    monkeypatch.setattr("yuxi.models.embed.requests.post", fake_post)
+
+    with pytest.raises(ValueError, match="503 Server Error"):
+        model.encode(["hello"])
+
+    assert len(calls) == 3
+    assert sleeps == [1.0, 2.0]
+    assert len(warnings) == 2
+    assert "retry=2/2" in warnings[-1]
+
+
+@pytest.mark.asyncio
+async def test_embedding_async_400_logs_warning(monkeypatch):
+    warnings = _capture_embed_warnings(monkeypatch)
+    model = OtherEmbedding(
+        model="namespace/embedding-model",
+        base_url="https://example.com/v1/embeddings",
+        api_key="test-key",
+    )
+
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, url, **_kwargs):
+            request = httpx.Request("POST", url)
+            return httpx.Response(400, request=request, text='{"error":"bad embedding input"}')
+
+    monkeypatch.setattr("yuxi.models.embed.httpx.AsyncClient", FakeAsyncClient)
+
+    with pytest.raises(httpx.HTTPStatusError, match="400 Bad Request"):
+        await model.aencode(["hello", "test"])
+
+    assert len(warnings) == 1
+    warning = warnings[0]
+    assert "400 Bad Request" in warning
+    assert "model=namespace/embedding-model" in warning
+    assert "input_count=2" in warning
+    assert "input_lengths=[5, 4]" in warning
+    assert "bad embedding input" in warning
+
+
+@pytest.mark.asyncio
+async def test_embedding_async_429_retries_ten_times_before_success(monkeypatch):
+    warnings = _capture_embed_warnings(monkeypatch)
+    sleeps = []
+
+    async def fake_sleep(delay):
+        sleeps.append(delay)
+
+    monkeypatch.setattr("yuxi.models.embed.asyncio.sleep", fake_sleep)
+
+    model = OtherEmbedding(
+        model="namespace/embedding-model",
+        base_url="https://example.com/v1/embeddings",
+        api_key="test-key",
+    )
+    success = _httpx_embedding_response(200, '{"data":[{"embedding":[0.1,0.2]}]}')
+    responses = [_httpx_embedding_response(429) for _ in range(10)] + [success]
+
+    class FakeAsyncClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc_val, exc_tb):
+            return False
+
+        async def post(self, *_args, **_kwargs):
+            return responses.pop(0)
+
+    monkeypatch.setattr("yuxi.models.embed.httpx.AsyncClient", FakeAsyncClient)
+
+    assert await model.aencode(["hello"]) == [[0.1, 0.2]]
+    assert sleeps == [1.0, 2.0, 4.0, 8.0, 10.0, 10.0, 10.0, 10.0, 10.0, 10.0]
+    assert len(warnings) == 10
+    assert "status=429" in warnings[-1]
+    assert "retry=10/10" in warnings[-1]
 
 
 def test_get_reranker_loads_model_from_cache(monkeypatch):

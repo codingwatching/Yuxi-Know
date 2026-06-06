@@ -1,4 +1,6 @@
+import asyncio
 import os
+import time
 from abc import ABC, abstractmethod
 
 import httpx
@@ -7,6 +9,11 @@ import requests
 
 from yuxi.models.providers.cache import model_cache
 from yuxi.utils import get_docker_safe_url, hashstr, logger
+
+EMBEDDING_RATE_LIMIT_MAX_RETRIES = 10
+EMBEDDING_TRANSIENT_MAX_RETRIES = 2
+EMBEDDING_RETRY_MAX_DELAY_SECONDS = 10.0
+EMBEDDING_RETRYABLE_STATUS_CODES = {429, 500, 502, 503, 504}
 
 
 def sigmoid(x):
@@ -113,31 +120,112 @@ class OtherEmbedding(BaseEmbeddingModel):
     def build_payload(self, message: list[str] | str) -> dict:
         return {"model": self.model, "input": message}
 
+    @staticmethod
+    def _retry_delay_seconds(retry_index: int, retry_after: str | None = None) -> float:
+        if retry_after:
+            try:
+                return min(float(retry_after), EMBEDDING_RETRY_MAX_DELAY_SECONDS)
+            except ValueError:
+                pass
+        return min(float(2 ** (retry_index - 1)), EMBEDDING_RETRY_MAX_DELAY_SECONDS)
+
+    def _prepare_retry(
+        self,
+        message: list[str] | str,
+        *,
+        retry_index: int,
+        response=None,
+        error: Exception | None = None,
+    ) -> tuple[int, float] | None:
+        status_code = getattr(response, "status_code", None)
+        response_text = str(getattr(response, "text", "") or "")
+        messages = [message] if isinstance(message, str) else message
+
+        if status_code == 400 and response is not None:
+            logger.warning(
+                "Embedding request returned 400 Bad Request: "
+                f"model={self.model}, base_url={self.base_url}, input_count={len(messages)}, "
+                f"input_lengths={[len(item) for item in messages]}, body={response_text[:2000]}"
+            )
+
+        if status_code == 429:
+            max_retries = EMBEDDING_RATE_LIMIT_MAX_RETRIES
+        elif status_code in EMBEDDING_RETRYABLE_STATUS_CODES or status_code is None:
+            max_retries = EMBEDDING_TRANSIENT_MAX_RETRIES
+        else:
+            max_retries = 0
+        if retry_index >= max_retries:
+            return None
+
+        next_retry_index = retry_index + 1
+        retry_after = response.headers.get("Retry-After") if response is not None else None
+        delay = self._retry_delay_seconds(next_retry_index, retry_after)
+        reason = f"status={status_code}" if status_code is not None else f"error={type(error).__name__}"
+        logger.warning(
+            "Retrying embedding request: "
+            f"{reason}, model={self.model}, base_url={self.base_url}, "
+            f"retry={next_retry_index}/{max_retries}, delay={delay:.1f}s, "
+            f"input_count={len(messages)}, body={response_text[:1000]}"
+        )
+        return next_retry_index, delay
+
+    @staticmethod
+    def _extract_embeddings(result: dict) -> list[list[float]]:
+        if not isinstance(result, dict) or "data" not in result:
+            raise ValueError(f"Embedding failed: Invalid response format {result}")
+        return [item["embedding"] for item in result["data"]]
+
     def encode(self, message: list[str] | str) -> list[list[float]]:
         payload = self.build_payload(message)
-        try:
-            response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=60)
-            response.raise_for_status()
-            result = response.json()
-            if not isinstance(result, dict) or "data" not in result:
-                raise ValueError(f"Embedding failed: Invalid response format {result}")
-            return [item["embedding"] for item in result["data"]]
-        except requests.RequestException as e:
-            logger.error(f"Embedding request failed: {e}, {payload}")
-            raise ValueError(f"Embedding request failed: {e}")
+        retry_index = 0
+        while True:
+            try:
+                response = requests.post(self.base_url, json=payload, headers=self.headers, timeout=60)
+                response.raise_for_status()
+                return self._extract_embeddings(response.json())
+            except requests.RequestException as e:
+                retry = self._prepare_retry(
+                    message,
+                    retry_index=retry_index,
+                    response=getattr(e, "response", None),
+                    error=e,
+                )
+                if retry:
+                    retry_index, delay = retry
+                    time.sleep(delay)
+                    continue
+
+                logger.error(f"Embedding request failed: {e}, {payload}")
+                raise ValueError(f"Embedding request failed: {e}")
 
     async def aencode(self, message: list[str] | str) -> list[list[float]]:
         payload = self.build_payload(message)
         async with httpx.AsyncClient() as client:
-            try:
-                response = await client.post(self.base_url, json=payload, headers=self.headers, timeout=60)
-                response.raise_for_status()
-                result = response.json()
-                if not isinstance(result, dict) or "data" not in result:
-                    raise ValueError(f"Embedding failed: Invalid response format {result}")
-                return [item["embedding"] for item in result["data"]]
-            except httpx.RequestError as e:
-                raise ValueError(f"Embedding async request failed: {e}, {payload}, {self.base_url=}")
+            retry_index = 0
+            while True:
+                try:
+                    response = await client.post(self.base_url, json=payload, headers=self.headers, timeout=60)
+                    response.raise_for_status()
+                    return self._extract_embeddings(response.json())
+                except httpx.HTTPStatusError as e:
+                    retry = self._prepare_retry(
+                        message,
+                        retry_index=retry_index,
+                        response=e.response,
+                        error=e,
+                    )
+                    if retry:
+                        retry_index, delay = retry
+                        await asyncio.sleep(delay)
+                        continue
+                    raise
+                except httpx.RequestError as e:
+                    retry = self._prepare_retry(message, retry_index=retry_index, error=e)
+                    if retry:
+                        retry_index, delay = retry
+                        await asyncio.sleep(delay)
+                        continue
+                    raise ValueError(f"Embedding async request failed: {e}, {payload}, {self.base_url=}")
 
 
 def get_embedding_model_info_by_id(model_id: str) -> dict:
