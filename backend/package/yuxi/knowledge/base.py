@@ -852,6 +852,7 @@ class KnowledgeBase(ABC):
         description: str,
         embedding_model_spec: str | None = None,
         llm_model_spec: str | None = None,
+        record_fields: dict[str, Any] | None = None,
         **kwargs,
     ) -> dict:
         """
@@ -862,6 +863,7 @@ class KnowledgeBase(ABC):
             description: 数据库描述
             embedding_model_spec: 嵌入模型 spec
             llm_model_spec: LLM 模型 spec
+            record_fields: 首次持久化知识库记录时由上层传入的受控业务字段
             **kwargs: 其他配置参数
 
         Returns:
@@ -886,7 +888,7 @@ class KnowledgeBase(ABC):
             "created_at": utc_isoformat(),
             "query_params": self._get_default_query_params(kb_id),
         }
-        await self._persist_kb(kb_id)
+        await self._persist_kb(kb_id, record_fields=record_fields)
 
         # 创建工作目录
         working_dir = os.path.join(self.work_dir, kb_id)
@@ -1736,7 +1738,7 @@ class KnowledgeBase(ABC):
             },
         )
 
-    async def _persist_kb(self, kb_id: str) -> None:
+    async def _persist_kb(self, kb_id: str, record_fields: dict[str, Any] | None = None) -> None:
         """只保存单个知识库到数据库，避免全量遍历"""
         from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
@@ -1757,19 +1759,22 @@ class KnowledgeBase(ABC):
             "query_params": meta.get("query_params"),
             "additional_params": meta.get("metadata") or {},
         }
+        if record_fields:
+            allowed_fields = {"share_config", "created_by"}
+            payload.update({key: value for key, value in record_fields.items() if key in allowed_fields})
 
         if existing is None:
             await kb_repo.create(payload)
         else:
-            await kb_repo.update(
-                kb_id,
-                {
-                    "name": payload["name"],
-                    "description": payload["description"],
-                    "kb_type": payload["kb_type"],
-                    "embedding_model_spec": payload["embedding_model_spec"],
-                    "llm_model_spec": payload["llm_model_spec"],
-                    "query_params": payload["query_params"],
-                    "additional_params": payload["additional_params"],
-                },
-            )
+            update_data = {
+                "name": payload["name"],
+                "description": payload["description"],
+                "kb_type": payload["kb_type"],
+                "embedding_model_spec": payload["embedding_model_spec"],
+                "llm_model_spec": payload["llm_model_spec"],
+                "query_params": payload["query_params"],
+                "additional_params": payload["additional_params"],
+            }
+            if record_fields:
+                update_data.update({key: payload[key] for key in allowed_fields if key in payload})
+            await kb_repo.update(kb_id, update_data)

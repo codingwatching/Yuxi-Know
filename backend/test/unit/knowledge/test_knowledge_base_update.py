@@ -57,6 +57,49 @@ def make_kb(tmp_path):
     return kb
 
 
+async def test_create_database_persists_allowed_record_fields(tmp_path, monkeypatch):
+    created_payloads = []
+
+    class FakeKnowledgeBaseRepository:
+        async def get_by_kb_id(self, kb_id):
+            return None
+
+        async def create(self, payload):
+            created_payloads.append(payload)
+            return types.SimpleNamespace(**payload)
+
+        async def update(self, kb_id, data):
+            raise AssertionError("create_database should insert new database metadata")
+
+    monkeypatch.setattr(
+        "yuxi.repositories.knowledge_base_repository.KnowledgeBaseRepository",
+        FakeKnowledgeBaseRepository,
+    )
+
+    kb = FakeKnowledgeBase(str(tmp_path))
+    share_config = {"access_level": "user", "department_ids": [], "user_uids": ["root"]}
+
+    await kb.create_database(
+        "New database",
+        "New description",
+        embedding_model_spec="provider:embedding",
+        record_fields={
+            "share_config": share_config,
+            "created_by": "root",
+            "unexpected_field": "ignored",
+        },
+        auto_generate_questions=False,
+    )
+
+    assert len(created_payloads) == 1
+    payload = created_payloads[0]
+    assert payload["share_config"] == share_config
+    assert payload["created_by"] == "root"
+    assert "unexpected_field" not in payload
+    assert "share_config" not in payload["additional_params"]
+    assert "created_by" not in payload["additional_params"]
+
+
 async def test_update_database_keeps_llm_spec_when_field_is_omitted(tmp_path):
     kb = make_kb(tmp_path)
 

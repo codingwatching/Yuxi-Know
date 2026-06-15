@@ -690,6 +690,10 @@ async def add_documents(
         message = f"文件处理完成，失败 {failed_count} 个" if failed_count else "文件处理完成"
         await context.set_result(summary | {"items": final_items})
         await context.set_progress(100.0, message)
+
+        if failed_count:
+            raise RuntimeError(message)
+
         return summary | {"items": final_items}
 
     try:

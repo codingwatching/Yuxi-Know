@@ -369,11 +369,13 @@ class KnowledgeBaseManager:
 
         kb_instance = self._get_or_create_kb_instance(kb_type)
         kwargs = kb_instance.normalize_additional_params(kwargs)
+        record_fields = {"share_config": share_config, "created_by": created_by}
         db_info = await kb_instance.create_database(
             database_name,
             description,
             embedding_model_spec=embedding_model_spec,
             llm_model_spec=llm_model_spec,
+            record_fields=record_fields,
             **kwargs,
         )
         kb_id = db_info["kb_id"]
@@ -381,8 +383,7 @@ class KnowledgeBaseManager:
         from yuxi.repositories.knowledge_base_repository import KnowledgeBaseRepository
 
         kb_repo = KnowledgeBaseRepository()
-        updated = await kb_repo.update(kb_id, {"share_config": share_config, "created_by": created_by})
-        if updated is None:
+        if await kb_repo.get_by_kb_id(kb_id) is None:
             await kb_repo.create(
                 {
                     "kb_id": kb_id,
@@ -392,8 +393,7 @@ class KnowledgeBaseManager:
                     "embedding_model_spec": embedding_model_spec,
                     "llm_model_spec": db_info.get("llm_model_spec"),
                     "additional_params": kwargs.copy(),
-                    "share_config": share_config,
-                    "created_by": created_by,
+                    **record_fields,
                 }
             )
 
