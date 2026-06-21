@@ -4,11 +4,13 @@ import io
 import threading
 import time
 from collections import Counter
+from concurrent.futures import Future
 from pathlib import Path
 
 import pytest
 from rich.console import Console
 
+import yuxi_cli.kb_upload as kb_upload_module
 from yuxi_cli.client import ClientError
 from yuxi_cli.config import ConfigStore, Remote
 from yuxi_cli.kb_upload import (
@@ -296,6 +298,57 @@ def test_kb_upload_limits_upload_concurrency(tmp_path):
 
     assert FakeKbClient.max_active_uploads <= 2
     assert FakeKbClient.max_active_uploads > 1
+
+
+def test_upload_files_limits_pending_submissions(monkeypatch, tmp_path):
+    FakeKbClient.reset()
+    files = []
+    for index in range(5):
+        path = tmp_path / f"{index}.md"
+        path.write_text("demo", encoding="utf-8")
+        files.append(LocalFile(path, path.name, ".md", path.stat().st_size))
+
+    state = {"wait_started": False, "submitted_before_wait": 0}
+
+    class TrackingExecutor:
+        def __init__(self, max_workers: int):
+            self.max_workers = max_workers
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_exc):
+            return None
+
+        def submit(self, fn, item):
+            if not state["wait_started"]:
+                state["submitted_before_wait"] += 1
+            future = Future()
+            future.set_result(fn(item))
+            return future
+
+    def tracking_wait(pending, *, return_when):
+        assert return_when == kb_upload_module.FIRST_COMPLETED
+        state["wait_started"] = True
+        completed = {next(iter(pending))}
+        return completed, set(pending) - completed
+
+    monkeypatch.setattr(kb_upload_module, "ThreadPoolExecutor", TrackingExecutor)
+    monkeypatch.setattr(kb_upload_module, "wait", tracking_wait)
+
+    uploaded, failed, add_response = upload_files(
+        Remote(name="local", url="http://localhost", api_key="yxkey_test"),
+        FakeKbClient,
+        "kb_1",
+        files,
+        concurrency=2,
+        console=_console(),
+    )
+
+    assert len(uploaded) == 5
+    assert failed == []
+    assert add_response is not None
+    assert state["submitted_before_wait"] == 2
 
 
 def test_kb_upload_treats_duplicate_content_as_already_uploaded(tmp_path):

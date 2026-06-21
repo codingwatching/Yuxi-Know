@@ -4,7 +4,7 @@ import os
 import sys
 import time
 from collections import Counter
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -350,7 +350,28 @@ def upload_files(
     console.print(f"开始上传并添加: {len(files)} 个文件，并发 {concurrency}")
     try:
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
-            future_map = {executor.submit(upload_and_add_one, item): item for item in files}
+            pending: set[Future] = set()
+            file_iter = iter(files)
+
+            def submit_next() -> None:
+                try:
+                    item = next(file_iter)
+                except StopIteration:
+                    return
+                pending.add(executor.submit(upload_and_add_one, item))
+
+            for _ in range(min(concurrency, len(files))):
+                submit_next()
+
+            def completed_results():
+                while pending:
+                    done, still_pending = wait(pending, return_when=FIRST_COMPLETED)
+                    pending.clear()
+                    pending.update(still_pending)
+                    for future in done:
+                        yield future.result()
+                        submit_next()
+
             if console.is_terminal:
                 progress = Progress(
                     TextColumn("[progress.description]{task.description}"),
@@ -363,17 +384,15 @@ def upload_files(
                 completed = 0
                 with progress:
                     task_id = progress.add_task("处理进度", total=len(files))
-                    for future in as_completed(future_map):
+                    for result, response in completed_results():
                         completed += 1
-                        result, response = future.result()
                         record_result(result, response, completed)
                         progress.advance(task_id)
             else:
                 completed = 0
                 progress_step = max(1, len(files) // 10)
-                for future in as_completed(future_map):
+                for result, response in completed_results():
                     completed += 1
-                    result, response = future.result()
                     record_result(result, response, completed)
                     if completed == len(files) or completed % progress_step == 0:
                         console.print(f"处理进度: {completed}/{len(files)}")
