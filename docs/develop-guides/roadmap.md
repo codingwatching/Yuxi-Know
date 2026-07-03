@@ -16,6 +16,7 @@
 
 
 **智能体**
+- [ ] 修复不同用户安装相同 Skill 时，因目前 Skill slug 全局唯一导致无法安装、会自动新增 versiontag 的问题，排查其对安装流程和版本管理的影响
 - [x] 子智能体缺少异步的机制 <Badge text="v0.7.1" /> <Badge type="warning" text="开发中" />
 - [ ] 子智能体缺少 steer 机制 <Badge text="v0.7.1" />
 - [ ] 子智能体的双向通信，缺少 ask_for_main_agent 的机制
