@@ -207,8 +207,8 @@ def _convert_csv_to_markdown(file_path: Path) -> str:
 
     dataframe = pd.read_csv(file_path)
     tables: list[str] = []
-    for _, row in dataframe.iterrows():
-        row_dataframe = pd.DataFrame([row], columns=dataframe.columns)
+    for i in range(len(dataframe)):
+        row_dataframe = dataframe.iloc[[i]]
         tables.append(row_dataframe.to_markdown(index=False))
     return "\n\n".join(tables)
 

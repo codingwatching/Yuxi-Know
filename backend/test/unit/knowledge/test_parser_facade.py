@@ -7,6 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import fitz
+import pandas as pd
 import pytest
 import yuxi.knowledge.parser.unified as parser_unified
 from docx import Document
@@ -64,6 +65,27 @@ def test_parser_parse_docx_file_returns_markdown_text(tmp_path: Path, monkeypatc
     assert isinstance(markdown, str)
     assert "Parser DOCX content" in markdown
     assert len(markdown.strip()) > 0
+
+
+def test_convert_csv_to_markdown_preserves_column_dtypes(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    file_path = tmp_path / "parser_test.csv"
+    file_path.write_text("id,score\n9007199254740993,2.5\n", encoding="utf-8")
+    captured_dtypes: list[dict[str, object]] = []
+    original_to_markdown = pd.DataFrame.to_markdown
+
+    def _capture_dtypes(dataframe: pd.DataFrame, *args, **kwargs) -> str:
+        captured_dtypes.append(dataframe.dtypes.to_dict())
+        return original_to_markdown(dataframe, *args, **kwargs)
+
+    monkeypatch.setattr(pd.DataFrame, "to_markdown", _capture_dtypes)
+
+    markdown = parser_unified._convert_csv_to_markdown(file_path)
+
+    assert markdown
+    assert str(captured_dtypes[0]["id"]) == "int64"
 
 
 def test_convert_with_docling_reinserts_image_links_in_document_order(
