@@ -22,9 +22,6 @@ from yuxi.utils import logger
 # ========== 通用知识库工具 ==========
 
 
-def _get_knowledge_base():
-    from yuxi.knowledge.runtime import knowledge_base
-
 def get_common_kb_tools() -> list:
     """获取通用知识库工具列表
 
@@ -402,7 +399,7 @@ async def download_kb_file(
 
 
 def _get_knowledge_base():
-    from yuxi import knowledge_base
+    from yuxi.knowledge.runtime import knowledge_base
 
     return knowledge_base
 
